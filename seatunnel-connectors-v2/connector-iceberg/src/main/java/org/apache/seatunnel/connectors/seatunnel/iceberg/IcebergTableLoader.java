@@ -19,6 +19,7 @@ package org.apache.seatunnel.connectors.seatunnel.iceberg;
 
 import org.apache.seatunnel.api.table.catalog.CatalogTable;
 import org.apache.seatunnel.connectors.seatunnel.iceberg.config.CommonConfig;
+import org.apache.seatunnel.connectors.seatunnel.iceberg.utils.EnvUtils;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.CachingCatalog;
@@ -44,6 +45,7 @@ public class IcebergTableLoader implements Closeable, Serializable {
     private final IcebergCatalogLoader icebergCatalogFactory;
     private final String tableIdentifierStr;
     private transient Catalog catalog;
+    private static CommonConfig sourceConfig;
 
     public IcebergTableLoader(
             @NonNull IcebergCatalogLoader icebergCatalogFactory,
@@ -70,6 +72,8 @@ public class IcebergTableLoader implements Closeable, Serializable {
         if (catalog == null) {
             open();
         }
+        EnvUtils.setEnv("HIVE_CONF_DIR", sourceConfig.getHiveSitePath());
+        EnvUtils.setEnv("HIVE_HOME", sourceConfig.getHiveSitePath());
         return catalog.loadTable(tableIdentifier);
     }
 
@@ -82,10 +86,12 @@ public class IcebergTableLoader implements Closeable, Serializable {
 
     @VisibleForTesting
     public static IcebergTableLoader create(CommonConfig config) {
+        sourceConfig = config;
         return create(config, null);
     }
 
     public static IcebergTableLoader create(CommonConfig config, CatalogTable catalogTable) {
+        sourceConfig = config;
         IcebergCatalogLoader catalogFactory = new IcebergCatalogLoader(config);
         String table;
         if (Objects.nonNull(catalogTable)

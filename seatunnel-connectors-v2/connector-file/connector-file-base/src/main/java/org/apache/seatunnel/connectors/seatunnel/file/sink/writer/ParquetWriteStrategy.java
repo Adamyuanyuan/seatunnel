@@ -121,7 +121,9 @@ public class ParquetWriteStrategy extends AbstractWriteStrategy {
         String filePath = getOrCreateFilePathBeingWritten(seaTunnelRow);
         ParquetWriter<GenericRecord> writer = getOrCreateWriter(filePath);
         GenericRecordBuilder recordBuilder = new GenericRecordBuilder(schema);
-        for (Integer integer : sinkColumnsIndexInRow) {
+        List<Integer> sinkColumnsIndexInRowAfterFilter =
+                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
+        for (Integer integer : sinkColumnsIndexInRowAfterFilter) {
             String fieldName = seaTunnelRowType.getFieldName(integer);
             Object field = seaTunnelRow.getField(integer);
             recordBuilder.set(
@@ -413,6 +415,8 @@ public class ParquetWriteStrategy extends AbstractWriteStrategy {
         ArrayList<Type> types = new ArrayList<>();
         SeaTunnelDataType<?>[] fieldTypes = seaTunnelRowType.getFieldTypes();
         String[] fieldNames = seaTunnelRowType.getFieldNames();
+        sinkColumnsIndex =
+                sinkColumnsIndex.stream().filter(e -> e != null).collect(Collectors.toList());
         sinkColumnsIndex.forEach(
                 index -> {
                     Type type =

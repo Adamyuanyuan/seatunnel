@@ -39,13 +39,15 @@ public class DorisSource
         implements SeaTunnelSource<SeaTunnelRow, DorisSourceSplit, DorisSourceState> {
 
     private static final long serialVersionUID = 6139826339248788618L;
-    private final DorisConfig config;
-    private final CatalogTable catalogTable;
+    private DorisConfig config;
+    private CatalogTable catalogTable;
 
     public DorisSource(ReadonlyConfig config, CatalogTable catalogTable) {
         this.config = DorisConfig.of(config);
         this.catalogTable = catalogTable;
     }
+
+    public DorisSource() {}
 
     @Override
     public String getPluginName() {

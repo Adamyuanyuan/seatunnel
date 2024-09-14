@@ -33,6 +33,7 @@ import org.apache.seatunnel.api.table.catalog.exception.TableNotExistException;
 import org.apache.seatunnel.api.table.type.SeaTunnelDataType;
 import org.apache.seatunnel.connectors.seatunnel.iceberg.IcebergCatalogLoader;
 import org.apache.seatunnel.connectors.seatunnel.iceberg.config.CommonConfig;
+import org.apache.seatunnel.connectors.seatunnel.iceberg.utils.EnvUtils;
 import org.apache.seatunnel.connectors.seatunnel.iceberg.utils.SchemaUtils;
 
 import org.apache.iceberg.PartitionField;
@@ -138,6 +139,9 @@ public class IcebergCatalog implements Catalog {
 
     @Override
     public boolean tableExists(TablePath tablePath) throws CatalogException {
+        String hiveSitePath = readonlyConfig.get(CommonConfig.HIVE_SITE_PATH);
+        EnvUtils.setEnv("HIVE_CONF_DIR", hiveSitePath);
+        EnvUtils.setEnv("HIVE_HOME", hiveSitePath);
         return catalog.tableExists(toIcebergTableIdentifier(tablePath));
     }
 

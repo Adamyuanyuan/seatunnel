@@ -54,6 +54,11 @@ public class CommonConfig extends KerberosConfig implements Serializable {
                     .stringType()
                     .noDefaultValue()
                     .withDescription(" the iceberg table");
+    public static final Option<String> HIVE_SITE_PATH =
+            Options.key("hive.site.path")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(" the path of hive-site.xml");
 
     public static final Option<Map<String, String>> CATALOG_PROPS =
             Options.key("iceberg.catalog.config")
@@ -89,6 +94,7 @@ public class CommonConfig extends KerberosConfig implements Serializable {
     private Map<String, String> catalogProps;
     private Map<String, String> hadoopProps;
     private String hadoopConfPath;
+    private String hiveSitePath;
 
     // kerberos
 
@@ -103,6 +109,7 @@ public class CommonConfig extends KerberosConfig implements Serializable {
         this.catalogProps = pluginConfig.get(CATALOG_PROPS);
         this.hadoopProps = pluginConfig.get(HADOOP_PROPS);
         this.hadoopConfPath = pluginConfig.get(HADOOP_CONF_PATH_PROP);
+        this.hiveSitePath = pluginConfig.get(HIVE_SITE_PATH);
         if (pluginConfig.toConfig().hasPath(KEY_CASE_SENSITIVE.key())) {
             this.caseSensitive = pluginConfig.get(KEY_CASE_SENSITIVE);
         }

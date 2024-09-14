@@ -39,6 +39,9 @@ import org.apache.seatunnel.format.text.splitor.CsvLineSplitor;
 import org.apache.seatunnel.format.text.splitor.DefaultTextLineSplitor;
 import org.apache.seatunnel.format.text.splitor.TextLineSplitor;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.io.compress.GzipCodec;
+
 import io.airlift.compress.lzo.LzopCodec;
 import lombok.extern.slf4j.Slf4j;
 
@@ -49,6 +52,8 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Optional;
+
+import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_KEY;
 
 @Slf4j
 public class TextReadStrategy extends AbstractReadStrategy {
@@ -72,6 +77,14 @@ public class TextReadStrategy extends AbstractReadStrategy {
             case LZO:
                 LzopCodec lzo = new LzopCodec();
                 inputStream = lzo.createInputStream(hadoopFileSystemProxy.getInputStream(path));
+                break;
+            case GZIP:
+                GzipCodec gzip = new GzipCodec();
+                Configuration conf = new Configuration();
+                conf.set(IO_FILE_BUFFER_SIZE_KEY, "4096");
+                gzip.setConf(conf);
+                inputStream =
+                        gzip.createInputStream(hadoopFileSystemProxy.getInputStream(path), null);
                 break;
             case NONE:
                 inputStream = hadoopFileSystemProxy.getInputStream(path);

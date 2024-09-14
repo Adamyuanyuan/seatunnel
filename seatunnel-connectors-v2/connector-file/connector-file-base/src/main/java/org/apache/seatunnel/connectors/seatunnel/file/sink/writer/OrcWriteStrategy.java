@@ -58,6 +58,7 @@ import java.time.temporal.ChronoField;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class OrcWriteStrategy extends AbstractWriteStrategy {
     private final LinkedHashMap<String, Writer> beingWrittenWriter;
@@ -76,7 +77,9 @@ public class OrcWriteStrategy extends AbstractWriteStrategy {
         VectorizedRowBatch rowBatch = schema.createRowBatch();
         int i = 0;
         int row = rowBatch.size++;
-        for (Integer index : sinkColumnsIndexInRow) {
+        List<Integer> sinkColumnsIndexInRowAfterFilter =
+                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
+        for (Integer index : sinkColumnsIndexInRowAfterFilter) {
             Object value = seaTunnelRow.getField(index);
             ColumnVector vector = rowBatch.cols[i];
             setColumn(value, vector, row);
@@ -192,7 +195,9 @@ public class OrcWriteStrategy extends AbstractWriteStrategy {
 
     private TypeDescription buildSchemaWithRowType() {
         TypeDescription schema = TypeDescription.createStruct();
-        for (Integer i : sinkColumnsIndexInRow) {
+        List<Integer> sinkColumnsIndexInRowAfterFilter =
+                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
+        for (Integer i : sinkColumnsIndexInRowAfterFilter) {
             TypeDescription fieldType = buildFieldWithRowType(seaTunnelRowType.getFieldType(i));
             schema.addField(seaTunnelRowType.getFieldName(i).toLowerCase(), fieldType);
         }
