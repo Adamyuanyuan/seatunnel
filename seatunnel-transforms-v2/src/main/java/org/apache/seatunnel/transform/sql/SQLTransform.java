@@ -30,6 +30,7 @@ import org.apache.seatunnel.api.table.catalog.TableSchema;
 import org.apache.seatunnel.api.table.type.SeaTunnelDataType;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
 import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
+import org.apache.seatunnel.common.utils.VariablesSubstitute;
 import org.apache.seatunnel.transform.common.AbstractCatalogSupportTransform;
 import org.apache.seatunnel.transform.sql.SQLEngineFactory.EngineType;
 
@@ -66,7 +67,7 @@ public class SQLTransform extends AbstractCatalogSupportTransform {
 
     public SQLTransform(@NonNull ReadonlyConfig config, @NonNull CatalogTable catalogTable) {
         super(catalogTable);
-        this.query = config.get(KEY_QUERY);
+        this.query = VariablesSubstitute.replaceDateVariableToToday(config.get(KEY_QUERY));
         if (config.getOptional(KEY_ENGINE).isPresent()) {
             this.engineType = EngineType.valueOf(config.get(KEY_ENGINE).toUpperCase());
         } else {

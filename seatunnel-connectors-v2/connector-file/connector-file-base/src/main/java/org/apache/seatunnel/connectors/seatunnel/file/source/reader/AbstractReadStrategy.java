@@ -22,6 +22,7 @@ import org.apache.seatunnel.shade.com.typesafe.config.Config;
 import org.apache.seatunnel.api.table.type.BasicType;
 import org.apache.seatunnel.api.table.type.SeaTunnelDataType;
 import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
+import org.apache.seatunnel.common.utils.VariablesSubstitute;
 import org.apache.seatunnel.connectors.seatunnel.file.config.BaseSourceConfigOptions;
 import org.apache.seatunnel.connectors.seatunnel.file.config.HadoopConf;
 import org.apache.seatunnel.connectors.seatunnel.file.hadoop.HadoopFileSystemProxy;
@@ -144,7 +145,10 @@ public abstract class AbstractReadStrategy implements ReadStrategy {
         if (pluginConfig.hasPath(BaseSourceConfigOptions.FILE_FILTER_PATTERN.key())) {
             String filterPattern =
                     pluginConfig.getString(BaseSourceConfigOptions.FILE_FILTER_PATTERN.key());
-            this.pattern = Pattern.compile(Matcher.quoteReplacement(filterPattern));
+            this.pattern =
+                    Pattern.compile(
+                            Matcher.quoteReplacement(
+                                    VariablesSubstitute.replaceDateVariableToToday(filterPattern)));
         }
     }
 

@@ -43,7 +43,7 @@ public class SqlServerCatalog extends AbstractJdbcCatalog {
     private static final String SELECT_COLUMNS_SQL_TEMPLATE =
             "SELECT tbl.name AS table_name,\n"
                     + "       col.name AS column_name,\n"
-                    + "       ext.value AS comment,\n"
+                    + "       CONVERT(nvarchar(200),ext.value) AS comment,\n"
                     + "       col.column_id AS column_id,\n"
                     + "       types.name AS type,\n"
                     + "       col.max_length AS max_length,\n"

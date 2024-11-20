@@ -29,6 +29,7 @@ import org.apache.seatunnel.common.config.CheckConfigUtil;
 import org.apache.seatunnel.common.config.CheckResult;
 import org.apache.seatunnel.common.constants.PluginType;
 import org.apache.seatunnel.common.exception.CommonErrorCodeDeprecated;
+import org.apache.seatunnel.common.utils.VariablesSubstitute;
 import org.apache.seatunnel.connectors.seatunnel.file.config.FileFormat;
 import org.apache.seatunnel.connectors.seatunnel.file.config.FileSystemType;
 import org.apache.seatunnel.connectors.seatunnel.file.exception.FileConnectorErrorCode;
@@ -41,6 +42,7 @@ import org.apache.seatunnel.connectors.seatunnel.file.source.reader.ReadStrategy
 import com.google.auto.service.AutoService;
 
 import java.io.IOException;
+import java.util.List;
 
 @AutoService(SeaTunnelSource.class)
 public class FtpFileSource extends BaseFileSource {
@@ -85,7 +87,14 @@ public class FtpFileSource extends BaseFileSource {
         readStrategy.setPluginConfig(pluginConfig);
         readStrategy.init(hadoopConf);
         try {
-            filePaths = readStrategy.getFileNamesByPath(path);
+            path = VariablesSubstitute.replaceDateVariableToToday(path);
+            List<String> fileNamesByPath = readStrategy.getFileNamesByPath(path);
+            fileNamesByPath.stream()
+                    .forEach(e -> filePaths.add(VariablesSubstitute.replaceDateVariableToToday(e)));
+            if (filePaths.isEmpty()) {
+                String errorMsg = String.format("Get file list is empty from path [%s]", path);
+                throw new PrepareFailException(getPluginName(), PluginType.SOURCE, errorMsg);
+            }
         } catch (IOException e) {
             String errorMsg = String.format("Get file list from this path [%s] failed", path);
             throw new FileConnectorException(

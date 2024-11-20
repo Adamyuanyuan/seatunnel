@@ -93,7 +93,6 @@ public class HadoopFileSystemProxy implements Serializable, Closeable {
                             + "] already finished in the last commit, skip");
             return;
         }
-
         if (removeWhenNewFilePathExist) {
             if (fileExist(newFilePath)) {
                 getFileSystem().delete(newPath, true);
@@ -103,7 +102,6 @@ public class HadoopFileSystemProxy implements Serializable, Closeable {
         if (!fileExist(newPath.getParent().toString())) {
             createDir(newPath.getParent().toString());
         }
-
         if (getFileSystem().rename(oldPath, newPath)) {
             log.info("rename file :[" + oldPath + "] to [" + newPath + "] finish");
         } else {

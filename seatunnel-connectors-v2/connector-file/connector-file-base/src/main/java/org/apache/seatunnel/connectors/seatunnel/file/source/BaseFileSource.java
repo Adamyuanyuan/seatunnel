@@ -32,6 +32,7 @@ import org.apache.seatunnel.connectors.seatunnel.file.source.split.FileSourceSpl
 import org.apache.seatunnel.connectors.seatunnel.file.source.split.FileSourceSplitEnumerator;
 import org.apache.seatunnel.connectors.seatunnel.file.source.state.FileSourceState;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public abstract class BaseFileSource
@@ -41,7 +42,7 @@ public abstract class BaseFileSource
     protected SeaTunnelRowType rowType;
     protected ReadStrategy readStrategy;
     protected HadoopConf hadoopConf;
-    protected List<String> filePaths;
+    protected List<String> filePaths = new ArrayList<>();
 
     @Override
     public Boundedness getBoundedness() {

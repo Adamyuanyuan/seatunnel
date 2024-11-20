@@ -21,11 +21,15 @@ import org.apache.seatunnel.common.Constants;
 
 import org.apache.commons.lang3.text.StrSubstitutor;
 
+import java.text.SimpleDateFormat;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class VariablesSubstitute {
 
@@ -55,5 +59,28 @@ public final class VariablesSubstitute {
     public static String substitute(String text, Map<String, String> valuesMap) {
         final StrSubstitutor sub = new StrSubstitutor(valuesMap);
         return sub.replace(text);
+    }
+
+    /**
+     * @param text the text need to replace date variable to today with the format string
+     * @return replaced text
+     */
+    public static String replaceDateVariableToToday(String text) {
+        Pattern pattern = Pattern.compile("\\$\\{(.*?)\\}");
+        Matcher matcher = pattern.matcher(text);
+        while (matcher.find()) {
+            try {
+                SimpleDateFormat sdf = new SimpleDateFormat(matcher.group(1));
+                Calendar calendar = Calendar.getInstance();
+                String currentDateTime = sdf.format(calendar.getTime());
+                text = text.replace(matcher.group(0), currentDateTime);
+            } catch (Exception e) {
+                throw new RuntimeException(
+                        "The date format is illegal, please check the date variable in the path: "
+                                + matcher.group(0),
+                        e);
+            }
+        }
+        return text;
     }
 }
