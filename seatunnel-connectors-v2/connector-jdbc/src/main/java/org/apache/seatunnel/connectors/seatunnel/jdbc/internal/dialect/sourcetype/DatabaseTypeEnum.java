@@ -15,16 +15,20 @@
  * limitations under the License.
  */
 
-package org.apache.seatunnel.api.sink.multitablesink;
+package org.apache.seatunnel.connectors.seatunnel.jdbc.internal.dialect.sourcetype;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
+public enum DatabaseTypeEnum {
+    MYSQL("MySQL"),
+    ORACLE("Oracle"),
+    SQLSERVER("SqlServer");
 
-import java.io.Serializable;
-import java.util.concurrent.ConcurrentMap;
+    private final String value;
 
-@Getter
-@AllArgsConstructor
-public class MultiTableCommitInfo implements Serializable {
-    private ConcurrentMap<SinkIdentifier, Object> commitInfo;
+    DatabaseTypeEnum(String value) {
+        this.value = value;
+    }
+
+    public String getValue() {
+        return value;
+    }
 }

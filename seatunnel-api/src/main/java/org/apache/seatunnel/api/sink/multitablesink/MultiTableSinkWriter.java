@@ -35,6 +35,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -49,7 +51,8 @@ public class MultiTableSinkWriter
     private final Map<SinkIdentifier, SinkWriter<SeaTunnelRow, ?, ?>> sinkWriters;
     private final Map<SinkIdentifier, SinkWriter.Context> sinkWritersContext;
     private final Map<String, Optional<Integer>> sinkPrimaryKeys = new HashMap<>();
-    private final List<Map<SinkIdentifier, SinkWriter<SeaTunnelRow, ?, ?>>> sinkWritersWithIndex;
+    private final List<ConcurrentMap<SinkIdentifier, SinkWriter<SeaTunnelRow, ?, ?>>>
+            sinkWritersWithIndex;
     private final List<MultiTableWriterRunnable> runnable = new ArrayList<>();
     private final Random random = new Random();
     private final List<BlockingQueue<SeaTunnelRow>> blockingQueues = new ArrayList<>();
@@ -84,7 +87,8 @@ public class MultiTableSinkWriter
         for (int i = 0; i < queueSize; i++) {
             BlockingQueue<SeaTunnelRow> queue = new LinkedBlockingQueue<>(1024);
             Map<String, SinkWriter<SeaTunnelRow, ?, ?>> tableIdWriterMap = new HashMap<>();
-            Map<SinkIdentifier, SinkWriter<SeaTunnelRow, ?, ?>> sinkIdentifierMap = new HashMap<>();
+            ConcurrentMap<SinkIdentifier, SinkWriter<SeaTunnelRow, ?, ?>> sinkIdentifierMap =
+                    new ConcurrentHashMap<>();
             int queueIndex = i;
             sinkWriters.entrySet().stream()
                     .filter(entry -> entry.getKey().getIndex() % queueSize == queueIndex)
@@ -144,9 +148,17 @@ public class MultiTableSinkWriter
                         .getKey()
                         .getTableIdentifier()
                         .equals(event.tablePath().getFullName())) {
+                    log.info(
+                            "Start apply schema change for table {} sub-writer {}",
+                            sinkWriterEntry.getKey().getTableIdentifier(),
+                            sinkWriterEntry.getKey().getIndex());
                     synchronized (runnable.get(i)) {
                         sinkWriterEntry.getValue().applySchemaChange(event);
                     }
+                    log.info(
+                            "Finish apply schema change for table {} sub-writer {}",
+                            sinkWriterEntry.getKey().getTableIdentifier(),
+                            sinkWriterEntry.getKey().getIndex());
                 }
             }
         }
@@ -208,9 +220,15 @@ public class MultiTableSinkWriter
 
     @Override
     public Optional<MultiTableCommitInfo> prepareCommit() throws IOException {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<MultiTableCommitInfo> prepareCommit(long checkpointId) throws IOException {
         checkQueueRemain();
         subSinkErrorCheck();
-        MultiTableCommitInfo multiTableCommitInfo = new MultiTableCommitInfo(new HashMap<>());
+        MultiTableCommitInfo multiTableCommitInfo =
+                new MultiTableCommitInfo(new ConcurrentHashMap<>());
         List<Future<?>> futures = new ArrayList<>();
         for (int i = 0; i < sinkWritersWithIndex.size(); i++) {
             int subWriterIndex = i;
@@ -225,7 +243,9 @@ public class MultiTableSinkWriter
                                                             .entrySet()) {
                                         Optional<?> commit;
                                         try {
-                                            commit = sinkWriterEntry.getValue().prepareCommit();
+                                            SinkWriter<SeaTunnelRow, ?, ?> sinkWriter =
+                                                    sinkWriterEntry.getValue();
+                                            commit = sinkWriter.prepareCommit(checkpointId);
                                         } catch (IOException e) {
                                             throw new RuntimeException(e);
                                         }
@@ -244,6 +264,9 @@ public class MultiTableSinkWriter
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
+        }
+        if (multiTableCommitInfo.getCommitInfo().isEmpty()) {
+            return Optional.empty();
         }
         return Optional.of(multiTableCommitInfo);
     }
