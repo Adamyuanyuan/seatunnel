@@ -37,7 +37,9 @@ import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class JsonWriteStrategy extends AbstractWriteStrategy {
     private final byte[] rowDelimiter;
@@ -57,9 +59,12 @@ public class JsonWriteStrategy extends AbstractWriteStrategy {
     @Override
     public void setSeaTunnelRowTypeInfo(SeaTunnelRowType seaTunnelRowType) {
         super.setSeaTunnelRowTypeInfo(seaTunnelRowType);
+        List<Integer> sinkColumnsIndexInRowAfterFilter =
+                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
         this.serializationSchema =
                 new JsonSerializationSchema(
-                        buildSchemaWithRowType(seaTunnelRowType, sinkColumnsIndexInRow), charset);
+                        buildSchemaWithRowType(seaTunnelRowType, sinkColumnsIndexInRowAfterFilter),
+                        charset);
     }
 
     @Override
@@ -67,11 +72,13 @@ public class JsonWriteStrategy extends AbstractWriteStrategy {
         super.write(seaTunnelRow);
         String filePath = getOrCreateFilePathBeingWritten(seaTunnelRow);
         FSDataOutputStream fsDataOutputStream = getOrCreateOutputStream(filePath);
+        List<Integer> sinkColumnsIndexInRowAfterFilter =
+                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
         try {
             byte[] rowBytes =
                     serializationSchema.serialize(
                             seaTunnelRow.copy(
-                                    sinkColumnsIndexInRow.stream()
+                                    sinkColumnsIndexInRowAfterFilter.stream()
                                             .mapToInt(Integer::intValue)
                                             .toArray()));
             if (isFirstWrite.get(filePath)) {

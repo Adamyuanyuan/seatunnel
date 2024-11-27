@@ -27,6 +27,8 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * An implementation of the AbstractWriteStrategy class that writes data in XML format.
@@ -71,8 +73,14 @@ public class XmlWriteStrategy extends AbstractWriteStrategy {
     }
 
     private XmlWriter getOrCreateXmlWriter(String filePath) {
+        List<Integer> sinkColumnsIndexInRowAfterFilter =
+                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
         return beingWrittenWriter.computeIfAbsent(
                 filePath,
-                k -> new XmlWriter(fileSinkConfig, sinkColumnsIndexInRow, seaTunnelRowType));
+                k ->
+                        new XmlWriter(
+                                fileSinkConfig,
+                                sinkColumnsIndexInRowAfterFilter,
+                                seaTunnelRowType));
     }
 }

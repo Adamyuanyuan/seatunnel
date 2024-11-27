@@ -28,6 +28,8 @@ import lombok.NonNull;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public class ExcelWriteStrategy extends AbstractWriteStrategy {
     private final LinkedHashMap<String, ExcelGenerator> beingWrittenWriter;
@@ -65,9 +67,12 @@ public class ExcelWriteStrategy extends AbstractWriteStrategy {
 
     private ExcelGenerator getOrCreateExcelGenerator(@NonNull String filePath) {
         ExcelGenerator excelGenerator = this.beingWrittenWriter.get(filePath);
+        List<Integer> sinkColumnsIndexInRowAfterFilter =
+                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
         if (excelGenerator == null) {
             excelGenerator =
-                    new ExcelGenerator(sinkColumnsIndexInRow, seaTunnelRowType, fileSinkConfig);
+                    new ExcelGenerator(
+                            sinkColumnsIndexInRowAfterFilter, seaTunnelRowType, fileSinkConfig);
             this.beingWrittenWriter.put(filePath, excelGenerator);
         }
         return excelGenerator;

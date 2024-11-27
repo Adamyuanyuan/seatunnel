@@ -41,7 +41,9 @@ import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class TextWriteStrategy extends AbstractWriteStrategy {
     private final LinkedHashMap<String, FSDataOutputStream> beingWrittenOutputStream;
@@ -73,10 +75,13 @@ public class TextWriteStrategy extends AbstractWriteStrategy {
     @Override
     public void setSeaTunnelRowTypeInfo(SeaTunnelRowType seaTunnelRowType) {
         super.setSeaTunnelRowTypeInfo(seaTunnelRowType);
+        List<Integer> sinkColumnsIndexInRowAfterFilter =
+                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
         this.serializationSchema =
                 TextSerializationSchema.builder()
                         .seaTunnelRowType(
-                                buildSchemaWithRowType(seaTunnelRowType, sinkColumnsIndexInRow))
+                                buildSchemaWithRowType(
+                                        seaTunnelRowType, sinkColumnsIndexInRowAfterFilter))
                         .delimiter(fieldDelimiter)
                         .dateFormatter(dateFormat)
                         .dateTimeFormatter(dateTimeFormat)
@@ -90,6 +95,8 @@ public class TextWriteStrategy extends AbstractWriteStrategy {
         super.write(seaTunnelRow);
         String filePath = getOrCreateFilePathBeingWritten(seaTunnelRow);
         FSDataOutputStream fsDataOutputStream = getOrCreateOutputStream(filePath);
+        List<Integer> sinkColumnsIndexInRowAfterFilter =
+                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
         try {
             if (isFirstWrite.get(filePath)) {
                 isFirstWrite.put(filePath, false);
@@ -99,7 +106,7 @@ public class TextWriteStrategy extends AbstractWriteStrategy {
             fsDataOutputStream.write(
                     serializationSchema.serialize(
                             seaTunnelRow.copy(
-                                    sinkColumnsIndexInRow.stream()
+                                    sinkColumnsIndexInRowAfterFilter.stream()
                                             .mapToInt(Integer::intValue)
                                             .toArray())));
         } catch (IOException e) {
