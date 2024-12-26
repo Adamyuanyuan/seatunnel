@@ -1,0 +1,151 @@
+@Library('cdn-devops') _
+
+def RELEASE_BUILD
+String BUILD_RESULT = ""
+
+pipeline {
+    agent {
+        label 'bigdata-192.168.29.31'
+    }
+	options {
+		buildDiscarder(logRotator(numToKeepStr: '10'))
+		disableConcurrentBuilds()
+		skipDefaultCheckout()
+		timeout(time: 600, unit: 'MINUTES')
+		gitLabConnection('gitlab')
+	}
+    environment {
+        // 执行条件（通用）
+        MASTER_BRANCH = "master" // 开发主分支
+        DEV_BRANCH = ".*dev" //开发临时分支
+        //RELEASE_TAG = ".*release" //发布分支或者tag，2.44.0-1.0.0-release
+        //QA_TAG = "v\\d+\\.\\d+.\\d+(-\\d+)?" // v1.0.0-01
+        RELEASE_TAG = ".*releaseunified" //发布分支或者tag，2.44.0-1.0.0-releaseunified
+        
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                script {
+                        // checkout code
+                    retry(2) { scmVars = checkout scm }
+                    RELEASE_BUILD = scmVars.GIT_COMMIT
+                    BUILD_RESULT = devops.updateBuildTasks(BUILD_RESULT,"Checkout OK...  √")
+                    echo 'begin checkout...'
+                    echo sh(returnStdout: true, script: "env")
+                    gitCommitId = scmVars.GIT_COMMIT
+                    gitCommitMsg = sh(script: "git log --pretty=format:%s ${gitCommitId} -1", returnStdout: true).trim()
+                    git_commit_name = sh (script: "git --no-pager show -s --format='%an' ${gitCommitId}",returnStdout: true).trim()
+                    println "git_commit_name=" + git_commit_name
+                    getlength=sh(script:"echo ${BRANCH_NAME}|wc -L",returnStdout: true).trim()
+                    println "getlength=" + getlength
+                    //getassemblyversion=sh(script:"echo ${BRANCH_NAME}|rev|cut -d '-' -f 2-${getlength}|rev",returnStdout: true).trim()
+                    getassemblyversion=sh(script:"echo ${BRANCH_NAME}|cut -d '-' -f 1,2",returnStdout: true).trim()
+                    println "getassemblyversion=" + getassemblyversion
+                    getassemblyversion="seatunnel-"+getassemblyversion
+                    println "getassemblyversion=" + getassemblyversion
+
+
+                    def fileContent = sh (script: "grep revision pom.xml|grep -v version", returnStdout: true).trim()
+                    //println "fileContent=" + fileContent
+                    // 使用正则表达式替换 <revision> 标签并捕获其内容  
+                    //def processedContent = fileContent.replaceAll(
+                    //    '<revision>(.*?)</revision>', 
+                    //    { match -> match[1] }         
+                    //).trim()
+
+                    println "fileContent=" + fileContent
+                    // 提取 <revision> 标签的内容
+                    def matcher = fileContent =~ /<revision>(.+?)<\/revision>/  
+                    if (matcher) {  
+                        pomversion = matcher[0][1].trim()  
+                    } else {  
+                        error("No valid <revision> found in pom.xml")  
+                    }
+
+
+
+
+
+                    //pomversion = processedContent
+                    println "pom.version=" + pomversion
+                    gettarname = "apache-seatunnel-" + pomversion + "-bin.tar.gz"
+                    println "gettarname=" + gettarname
+                    getfilename = "apache-seatunnel-" + pomversion
+                    println "getfilename=" + getfilename
+
+                }
+            }
+        }
+
+        stage('Build-Package') {
+            when {
+                expression { BRANCH_NAME ==~ env.MASTER_BRANCH || BRANCH_NAME ==~ env.DEV_BRANCH || BRANCH_NAME ==~ env.RELEASE_TAG}
+            }
+            steps {
+                script {
+                        sh """ls -lh"""
+                        sh """echo $WORKSPACE"""
+                        if(BRANCH_NAME ==~ env.MASTER_BRANCH || BRANCH_NAME ==~ env.DEV_BRANCH){
+                            sh """mkdir -p /data1/seatunnel/maven && chown -R 9999:9999 /data1/seatunnel/maven && chown -R 9999:9999 $WORKSPACE && docker run --privileged --rm --net=host --cpus="6" -m 12g --user flinkci -v $WORKSPACE:/home/flinkci/seatunnel -v /data1/seatunnel/maven:/home/flinkci/.m2/repository -v /var/run/docker.sock:/var/run/docker.sock harbor.ctyuncdn.cn/bdyun/basic-image/amd-ctyunos-flinkcdc:v1.0.0 /bin/bash -c \"cd /home/flinkci/seatunnel && mvn clean install -DskipTests -Dfast  -Dscala-2.12\""""
+                        }else{
+                            sh """mkdir -p /data1/seatunnel/maven && chown -R 9999:9999 /data1/seatunnel/maven && chown -R 9999:9999 $WORKSPACE && docker run --privileged --rm --net=host --cpus="6" -m 12g --user flinkci -v $WORKSPACE:/home/flinkci/seatunnel -v /data1/seatunnel/maven:/home/flinkci/.m2/repository -v /var/run/docker.sock:/var/run/docker.sock harbor.ctyuncdn.cn/bdyun/basic-image/amd-ctyunos-flinkcdc:v1.0.0 /bin/bash -c \"cd /home/flinkci/seatunnel && mvn clean install -DskipTests -Dfast  -Dscala-2.12\""""
+                            //sh """mkdir -p /data1/seatunnel/maven && chown -R 9999:9999 /data1/seatunnel/maven && chown -R 9999:9999 $WORKSPACE && docker run --privileged --rm --net=host --cpus="6" -m 12g --user workci -v $WORKSPACE:/home/workci/seatunnel -v /data1/seatunnel/maven:/home/workci/.m2/repository -v /var/run/docker.sock:/var/run/docker.sock harbor.ctyuncdn.cn/bdyun/basic-image/centos7.9-x86-jdk8:v2.4.0-flink-v1.0.1 /bin/bash -c \"cd /home/workci/seatunnel && mvn clean install -DskipTests -Dfast  -Dscala-2.12\""""
+                        }
+                        BUILD_RESULT = devops.updateBuildTasks(BUILD_RESULT,"Build-Package OK...√")
+                }
+            }
+        }
+
+
+        stage('ARCHIVE'){
+            when {
+                expression {BRANCH_NAME ==~ env.RELEASE_TAG || BRANCH_NAME ==~ env.DEV_BRANCH}
+            }
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId:'credential-nexus',usernameVariable:'USERNAME',passwordVariable:'PASSWORD')]){
+                    sh """
+                    ls -lh
+                    rm -rf *${getassemblyversion}*
+                    tar -xzf ./seatunnel-dist/target/${gettarname}
+                    mv ${getfilename} ${getassemblyversion}
+                    ls -l ${getassemblyversion}/
+                    """
+                    if(BRANCH_NAME ==~ env.DEV_BRANCH){
+                        sh """
+                        tar -czf ${getassemblyversion}-dev.tar.gz ${getassemblyversion}
+                        curl -v -u ${USERNAME}:${PASSWORD} --upload-file ${getassemblyversion}-dev.tar.gz https://devops.ctcdn.cn/nexus/repository/raw-repo/bigdata-emr-dev/emr-ccdp-dev-generic/emr-ccdp-tar-dev/
+                    """
+                    }else{
+                        sh """
+                        tar -czf ${getassemblyversion}.tar.gz ${getassemblyversion}
+                        curl -v -u ${USERNAME}:${PASSWORD} --upload-file ${getassemblyversion}.tar.gz https://devops.ctcdn.cn/nexus/repository/raw-repo/bigdata-emr-release/emr-ccdp-release-generic/emr-ccdp-tar-release/
+                    """
+                    }
+                }                    
+                }
+            }
+        }
+
+    }
+
+    post {
+        success {
+            script {
+                updateGitlabCommitStatus(name: 'result', state: 'success')
+                sh """rm -rf $WORKSPACE*"""  // 清理机器项目缓存，否则再次执行报错
+            }
+        }
+        failure {
+            script {
+                updateGitlabCommitStatus(name: 'result', state: 'failed')
+                sh """rm -rf $WORKSPACE*"""  // 清理机器项目缓存，否则再次执行报错
+            }
+        }
+    }
+
+}
+
+
