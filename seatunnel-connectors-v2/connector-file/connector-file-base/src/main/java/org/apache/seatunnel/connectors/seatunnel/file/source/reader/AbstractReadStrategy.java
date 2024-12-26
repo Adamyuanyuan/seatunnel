@@ -29,6 +29,7 @@ import org.apache.seatunnel.connectors.seatunnel.file.hadoop.HadoopFileSystemPro
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.FileStatus;
+
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
