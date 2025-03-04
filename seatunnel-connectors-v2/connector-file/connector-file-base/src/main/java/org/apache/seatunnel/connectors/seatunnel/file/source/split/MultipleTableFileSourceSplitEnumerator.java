@@ -18,6 +18,7 @@
 package org.apache.seatunnel.connectors.seatunnel.file.source.split;
 
 import org.apache.seatunnel.api.source.SourceSplitEnumerator;
+import org.apache.seatunnel.common.utils.VariablesSubstitute;
 import org.apache.seatunnel.connectors.seatunnel.file.config.BaseFileSourceConfig;
 import org.apache.seatunnel.connectors.seatunnel.file.config.BaseMultipleTableFileSourceConfig;
 import org.apache.seatunnel.connectors.seatunnel.file.source.state.FileSourceState;
@@ -93,7 +94,9 @@ public class MultipleTableFileSourceSplitEnumerator
             String tableId = filePathEntry.getKey();
             List<String> filePaths = filePathEntry.getValue();
             for (String filePath : filePaths) {
-                pendingSplit.add(new FileSourceSplit(tableId, filePath));
+                pendingSplit.add(
+                        new FileSourceSplit(
+                                tableId, VariablesSubstitute.replaceDateVariableToToday(filePath)));
             }
         }
         assignSplit(subtaskId);

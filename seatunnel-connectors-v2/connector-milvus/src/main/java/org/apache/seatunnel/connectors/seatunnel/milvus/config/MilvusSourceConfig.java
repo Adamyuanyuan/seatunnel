@@ -20,19 +20,7 @@ package org.apache.seatunnel.connectors.seatunnel.milvus.config;
 import org.apache.seatunnel.api.configuration.Option;
 import org.apache.seatunnel.api.configuration.Options;
 
-public class MilvusSourceConfig {
-
-    public static final Option<String> URL =
-            Options.key("url")
-                    .stringType()
-                    .noDefaultValue()
-                    .withDescription("Milvus public endpoint");
-
-    public static final Option<String> TOKEN =
-            Options.key("token")
-                    .stringType()
-                    .noDefaultValue()
-                    .withDescription("Milvus token for authentication");
+public class MilvusSourceConfig extends MilvusCommonConfig {
 
     public static final Option<String> DATABASE =
             Options.key("database")
@@ -45,4 +33,16 @@ public class MilvusSourceConfig {
                     .stringType()
                     .noDefaultValue()
                     .withDescription("Milvus collection to read");
+
+    public static final Option<Integer> BATCH_SIZE =
+            Options.key("batch_size")
+                    .intType()
+                    .defaultValue(1000)
+                    .withDescription("writer batch size");
+
+    public static final Option<Integer> RATE_LIMIT =
+            Options.key("rate_limit")
+                    .intType()
+                    .defaultValue(1000000)
+                    .withDescription("writer rate limit");
 }

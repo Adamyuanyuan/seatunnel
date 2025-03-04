@@ -57,8 +57,8 @@ public class FlinkSink<InputT, CommT, WriterStateT, GlobalCommT>
             List<CatalogTable> catalogTables,
             int parallelism) {
         this.sink = sink;
-        this.parallelism = parallelism;
         this.catalogTables = catalogTables;
+        this.parallelism = parallelism;
     }
 
     @Override

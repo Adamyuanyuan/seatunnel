@@ -18,13 +18,13 @@
 
 package org.apache.seatunnel.connectors.seatunnel.jdbc;
 
+import org.apache.seatunnel.shade.com.google.common.collect.Lists;
+
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
 import org.apache.seatunnel.e2e.common.TestResource;
 import org.apache.seatunnel.e2e.common.TestSuiteBase;
 import org.apache.seatunnel.e2e.common.container.ContainerExtendedFactory;
-import org.apache.seatunnel.e2e.common.container.EngineType;
 import org.apache.seatunnel.e2e.common.container.TestContainer;
-import org.apache.seatunnel.e2e.common.junit.DisabledOnContainer;
 import org.apache.seatunnel.e2e.common.junit.TestContainerExtension;
 
 import org.apache.commons.lang3.tuple.Pair;
@@ -43,7 +43,6 @@ import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.DockerLoggerFactory;
 import org.testcontainers.utility.MountableFile;
 
-import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -149,12 +148,8 @@ public class JdbcOracleMultipleTablesIT extends TestSuiteBase implements TestRes
         initSourceTablesData();
     }
 
-    @DisabledOnContainer(
-            value = {},
-            type = {EngineType.FLINK},
-            disabledReason = "Currently FLINK do not support multiple tables")
     @TestTemplate
-    public void testMysqlJdbcMultipleTableE2e(TestContainer container)
+    public void testOracleJdbcMultipleTableE2e(TestContainer container)
             throws IOException, InterruptedException, SQLException {
         clearSinkTables();
 

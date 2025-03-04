@@ -18,8 +18,8 @@
 package org.apache.seatunnel.connectors.seatunnel.file.sink.writer;
 
 import org.apache.seatunnel.api.serialization.SerializationSchema;
+import org.apache.seatunnel.api.table.catalog.CatalogTable;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
-import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
 import org.apache.seatunnel.common.exception.CommonError;
 import org.apache.seatunnel.common.exception.CommonErrorCodeDeprecated;
 import org.apache.seatunnel.common.utils.DateTimeUtils;
@@ -41,9 +41,7 @@ import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class TextWriteStrategy extends AbstractWriteStrategy {
     private final LinkedHashMap<String, FSDataOutputStream> beingWrittenOutputStream;
@@ -73,15 +71,13 @@ public class TextWriteStrategy extends AbstractWriteStrategy {
     }
 
     @Override
-    public void setSeaTunnelRowTypeInfo(SeaTunnelRowType seaTunnelRowType) {
-        super.setSeaTunnelRowTypeInfo(seaTunnelRowType);
-        List<Integer> sinkColumnsIndexInRowAfterFilter =
-                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
+    public void setCatalogTable(CatalogTable catalogTable) {
+        super.setCatalogTable(catalogTable);
         this.serializationSchema =
                 TextSerializationSchema.builder()
                         .seaTunnelRowType(
                                 buildSchemaWithRowType(
-                                        seaTunnelRowType, sinkColumnsIndexInRowAfterFilter))
+                                        catalogTable.getSeaTunnelRowType(), sinkColumnsIndexInRow))
                         .delimiter(fieldDelimiter)
                         .dateFormatter(dateFormat)
                         .dateTimeFormatter(dateTimeFormat)
@@ -95,8 +91,6 @@ public class TextWriteStrategy extends AbstractWriteStrategy {
         super.write(seaTunnelRow);
         String filePath = getOrCreateFilePathBeingWritten(seaTunnelRow);
         FSDataOutputStream fsDataOutputStream = getOrCreateOutputStream(filePath);
-        List<Integer> sinkColumnsIndexInRowAfterFilter =
-                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
         try {
             if (isFirstWrite.get(filePath)) {
                 isFirstWrite.put(filePath, false);
@@ -106,7 +100,7 @@ public class TextWriteStrategy extends AbstractWriteStrategy {
             fsDataOutputStream.write(
                     serializationSchema.serialize(
                             seaTunnelRow.copy(
-                                    sinkColumnsIndexInRowAfterFilter.stream()
+                                    sinkColumnsIndexInRow.stream()
                                             .mapToInt(Integer::intValue)
                                             .toArray())));
         } catch (IOException e) {

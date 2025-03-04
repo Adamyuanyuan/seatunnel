@@ -18,6 +18,9 @@
 package org.apache.seatunnel.engine.server;
 
 import org.apache.seatunnel.engine.common.config.SeaTunnelConfig;
+import org.apache.seatunnel.engine.server.joiner.LiteNodeDropOutDiscoveryJoiner;
+import org.apache.seatunnel.engine.server.joiner.LiteNodeDropOutMulticastJoiner;
+import org.apache.seatunnel.engine.server.joiner.LiteNodeDropOutTcpIpJoiner;
 
 import com.hazelcast.config.JoinConfig;
 import com.hazelcast.instance.impl.DefaultNodeContext;
@@ -29,9 +32,7 @@ import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
 import static com.hazelcast.config.ConfigAccessor.getActiveMemberNetworkConfig;
-import static com.hazelcast.internal.config.AliasedDiscoveryConfigUtils.allUsePublicAddress;
 import static com.hazelcast.spi.properties.ClusterProperty.DISCOVERY_SPI_ENABLED;
-import static com.hazelcast.spi.properties.ClusterProperty.DISCOVERY_SPI_PUBLIC_IP_ENABLED;
 
 @Slf4j
 public class SeaTunnelNodeContext extends DefaultNodeContext {
@@ -49,30 +50,28 @@ public class SeaTunnelNodeContext extends DefaultNodeContext {
 
     @Override
     public Joiner createJoiner(Node node) {
+
         JoinConfig join =
                 getActiveMemberNetworkConfig(seaTunnelConfig.getHazelcastConfig()).getJoin();
         join.verify();
 
-        if (node.shouldUseMulticastJoiner(join) && node.multicastService != null) {
-            super.createJoiner(node);
+        // update for seatunnel, lite member can not become master node
+        if (join.getMulticastConfig().isEnabled() && node.multicastService != null) {
+            log.info("Using LiteNodeDropOutMulticast Multicast discovery");
+            return new LiteNodeDropOutMulticastJoiner(node);
         } else if (join.getTcpIpConfig().isEnabled()) {
             log.info("Using LiteNodeDropOutTcpIpJoiner TCP/IP discovery");
             return new LiteNodeDropOutTcpIpJoiner(node);
         } else if (node.getProperties().getBoolean(DISCOVERY_SPI_ENABLED)
                 || isAnyAliasedConfigEnabled(join)
                 || join.isAutoDetectionEnabled()) {
-            super.createJoiner(node);
+            log.info("Using LiteNodeDropOutDiscoveryJoiner Discovery SPI");
+            return new LiteNodeDropOutDiscoveryJoiner(node);
         }
         return null;
     }
 
-    private static boolean isAnyAliasedConfigEnabled(JoinConfig join) {
+    private boolean isAnyAliasedConfigEnabled(JoinConfig join) {
         return !AliasedDiscoveryConfigUtils.createDiscoveryStrategyConfigs(join).isEmpty();
-    }
-
-    private boolean usePublicAddress(JoinConfig join, Node node) {
-        return node.getProperties().getBoolean(DISCOVERY_SPI_PUBLIC_IP_ENABLED)
-                || allUsePublicAddress(
-                        AliasedDiscoveryConfigUtils.aliasedDiscoveryConfigsFrom(join));
     }
 }

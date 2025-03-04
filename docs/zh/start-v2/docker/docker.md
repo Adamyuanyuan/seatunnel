@@ -40,7 +40,7 @@ docker run --rm -it -v /tmp/job/:/config apache/seatunnel:<version_tag> ./bin/se
 ```shell
 cd seatunnel
 # Use already sett maven profile
-mvn -B clean install -Dmaven.test.skip=true -Dmaven.javadoc.skip=true -Dlicense.skipAddThirdParty=true -D"docker.build.skip"=false -D"docker.verify.skip"=false -D"docker.push.skip"=true -D"docker.tag"=2.3.8 -Dmaven.deploy.skip --no-snapshot-updates -Pdocker,seatunnel
+mvn -B clean install -Dmaven.test.skip=true -Dmaven.javadoc.skip=true -Dlicense.skipAddThirdParty=true -D"docker.build.skip"=false -D"docker.verify.skip"=false -D"docker.push.skip"=true -D"docker.tag"=2.3.9 -Dmaven.deploy.skip -D"skip.spotless"=true --no-snapshot-updates -Pdocker,seatunnel
 
 # Check the docker image
 docker images | grep apache/seatunnel
@@ -53,10 +53,10 @@ mvn clean package -DskipTests -Dskip.spotless=true
 
 # Build docker image
 cd seatunnel-dist
-docker build -f src/main/docker/Dockerfile --build-arg VERSION=2.3.8 -t apache/seatunnel:2.3.8 .
+docker build -f src/main/docker/Dockerfile --build-arg VERSION=2.3.9 -t apache/seatunnel:2.3.9 .
 
 # If you build from dev branch, you should add SNAPSHOT suffix to the version
-docker build -f src/main/docker/Dockerfile --build-arg VERSION=2.3.8-SNAPSHOT -t apache/seatunnel:2.3.8-SNAPSHOT .
+docker build -f src/main/docker/Dockerfile --build-arg VERSION=2.3.9-SNAPSHOT -t apache/seatunnel:2.3.9-SNAPSHOT .
 
 # Check the docker image
 docker images | grep apache/seatunnel
@@ -78,7 +78,9 @@ RUN cd /opt && \
     tar -zxvf apache-seatunnel-${VERSION}-bin.tar.gz && \
     mv apache-seatunnel-${VERSION} seatunnel && \
     rm apache-seatunnel-${VERSION}-bin.tar.gz && \
-    cp seatunnel/config/log4j2_client.properties seatunnel/config/log4j2.properties && \
+    sed -i 's/#rootLogger.appenderRef.consoleStdout.ref/rootLogger.appenderRef.consoleStdout.ref/' seatunnel/config/log4j2.properties && \
+    sed -i 's/#rootLogger.appenderRef.consoleStderr.ref/rootLogger.appenderRef.consoleStderr.ref/' seatunnel/config/log4j2.properties && \
+    sed -i 's/rootLogger.appenderRef.file.ref/#rootLogger.appenderRef.file.ref/' seatunnel/config/log4j2.properties && \    
     cp seatunnel/config/hazelcast-master.yaml seatunnel/config/hazelcast-worker.yaml
 
 WORKDIR /opt/seatunnel
@@ -149,14 +151,14 @@ docker下的集群模式仅支持Zeta引擎
 有两种方式来启动集群
 
 
-### 1. 直接使用Docker
+### 直接使用Docker
 
-1. 创建一个network
+#### 创建一个network
 ```shell
 docker network create seatunnel-network
 ```
 
-2. 启动节点
+#### 启动节点
 - 启动master节点
 ```shell
 ## start master and export 5801 port 
@@ -170,23 +172,26 @@ docker run -d --name seatunnel_master \
 
 - 获取容器的ip
 ```shell
-docker inspect master-1
+docker inspect seatunnel_master
 ```
 运行此命令获取master容器的ip
 
 - 启动worker节点
 ```shell
+# 将ST_DOCKER_MEMBER_LIST设置为master容器的ip
 docker run -d --name seatunnel_worker_1 \
     --network seatunnel-network \
     --rm \
-    -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \ # 设置为刚刚启动的master容器ip
+    -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \
     apache/seatunnel \
     ./bin/seatunnel-cluster.sh -r worker
 
-docker run -d --name seatunnel_worker_2 \ 
+## 启动第二个worker节点
+# 将ST_DOCKER_MEMBER_LIST设置为master容器的ip
+docker run -d --name seatunnel_worker_2 \
     --network seatunnel-network \
     --rm \
-     -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \    # 设置为刚刚启动的master容器ip
+     -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \
     apache/seatunnel \
     ./bin/seatunnel-cluster.sh -r worker    
 
@@ -195,26 +200,27 @@ docker run -d --name seatunnel_worker_2 \
 #### 集群扩容
 
 ```shell
-## start master and export 5801 port 
+# 将ST_DOCKER_MEMBER_LIST设置为已经启动的master容器的ip 
 docker run -d --name seatunnel_master \
     --network seatunnel-network \
     --rm \
-    -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \ # 设置为已启动的master容器ip
+    -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \
     apache/seatunnel \
     ./bin/seatunnel-cluster.sh -r master
 ```
 
 运行这个命令创建一个worker节点
 ```shell
+# 将ST_DOCKER_MEMBER_LIST设置为master容器的ip
 docker run -d --name seatunnel_worker_1 \
     --network seatunnel-network \
     --rm \
-    -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \ # 设置为已启动的master容器ip
+    -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \
     apache/seatunnel \
     ./bin/seatunnel-cluster.sh -r worker
 ```
 
-### 2. 使用docker-compose
+### 使用docker-compose
 `docker-compose.yaml` 配置文件为：
 ```yaml
 version: '3.8'
@@ -360,28 +366,30 @@ networks:
 
 ### 提交作业到集群
 
-1. 使用docker container作为客户端
+#### 使用docker container作为客户端
 - 提交任务
 ```shell
+# 将ST_DOCKER_MEMBER_LIST设置为master容器的ip
 docker run --name seatunnel_client \
     --network seatunnel-network \
+    -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \
     --rm \
     apache/seatunnel \
-    -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \ # set it as master node container ip
     ./bin/seatunnel.sh  -c config/v2.batch.config.template
 ```
 
 - 查看作业列表
 ```shell
+# 将ST_DOCKER_MEMBER_LIST设置为master容器的ip
 docker run --name seatunnel_client \
     --network seatunnel-network \
+    -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \
     --rm \
     apache/seatunnel \
-    -e ST_DOCKER_MEMBER_LIST=172.18.0.2:5801 \ # set it as master node container ip
     ./bin/seatunnel.sh  -l
 ```
 
 更多其他命令请参考[命令行工具](../../seatunnel-engine/user-command.md)
 
-2. 使用RestAPI
-请参考 [提交作业](../../seatunnel-engine/rest-api.md#提交作业)
+#### 使用RestAPI
+请参考 [提交作业](../../seatunnel-engine/rest-api-v2.md#提交作业)

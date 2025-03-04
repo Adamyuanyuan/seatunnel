@@ -83,4 +83,10 @@ public class AssertConfig {
                     .noDefaultValue()
                     .withDescription(
                             "Rule definition of user's available data. Each rule represents one field validation or row num validation.");
+
+    public static final Option<String> TABLE_PATH =
+            Options.key("table_path")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("table full path");
 }

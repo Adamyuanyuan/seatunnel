@@ -21,9 +21,13 @@ import org.apache.seatunnel.shade.com.fasterxml.jackson.core.JsonProcessingExcep
 import org.apache.seatunnel.shade.com.fasterxml.jackson.databind.JsonNode;
 import org.apache.seatunnel.shade.com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.seatunnel.shade.com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.seatunnel.shade.com.google.common.collect.Lists;
+import org.apache.seatunnel.shade.com.google.common.collect.Maps;
 
 import org.apache.seatunnel.api.configuration.ReadonlyConfig;
 import org.apache.seatunnel.api.table.catalog.TablePath;
+import org.apache.seatunnel.api.table.catalog.exception.DatabaseAlreadyExistException;
+import org.apache.seatunnel.api.table.catalog.exception.DatabaseNotExistException;
 import org.apache.seatunnel.api.table.converter.BasicTypeDefine;
 import org.apache.seatunnel.common.utils.JsonUtils;
 import org.apache.seatunnel.connectors.seatunnel.elasticsearch.catalog.ElasticSearchCatalog;
@@ -33,13 +37,12 @@ import org.apache.seatunnel.connectors.seatunnel.elasticsearch.dto.BulkResponse;
 import org.apache.seatunnel.connectors.seatunnel.elasticsearch.dto.source.ScrollResult;
 import org.apache.seatunnel.e2e.common.TestResource;
 import org.apache.seatunnel.e2e.common.TestSuiteBase;
-import org.apache.seatunnel.e2e.common.container.EngineType;
 import org.apache.seatunnel.e2e.common.container.TestContainer;
-import org.apache.seatunnel.e2e.common.junit.DisabledOnContainer;
 import org.apache.seatunnel.e2e.common.util.ContainerUtil;
 
 import org.apache.commons.io.IOUtils;
 
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,8 +55,6 @@ import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.DockerLoggerFactory;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -75,6 +76,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
@@ -201,10 +203,6 @@ public class ElasticsearchIT extends TestSuiteBase implements TestResource {
     }
 
     @TestTemplate
-    @DisabledOnContainer(
-            value = {},
-            type = {EngineType.FLINK},
-            disabledReason = "Currently FLINK do not support multiple table read")
     public void testElasticsSearchWithMultiSourceByFilter(TestContainer container)
             throws InterruptedException, IOException {
         // read read_filter_index1,read_filter_index2
@@ -305,10 +303,6 @@ public class ElasticsearchIT extends TestSuiteBase implements TestResource {
         Assertions.assertEquals(0, sinkData2.size());
     }
 
-    @DisabledOnContainer(
-            value = {},
-            type = {EngineType.FLINK},
-            disabledReason = "Currently FLINK do not support multiple table read")
     @TestTemplate
     public void testElasticsearchWithMultiSink(TestContainer container)
             throws IOException, InterruptedException {
@@ -358,6 +352,37 @@ public class ElasticsearchIT extends TestSuiteBase implements TestResource {
         Assertions.assertEquals(
                 1,
                 esRestClient.getIndexDocsCount("st_index_full_type_target").get(0).getDocsCount());
+    }
+
+    @TestTemplate
+    public void testFakeSourceToElasticsearchWithUpperCaseIndex(TestContainer container) {
+        CompletableFuture.supplyAsync(
+                () -> {
+                    try {
+                        Container.ExecResult execResult =
+                                container.executeJob(
+                                        "/elasticsearch/fakesource_to_elasticsearch_with_upper_case_index.conf");
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                    return null;
+                });
+        Awaitility.await()
+                .atMost(120, TimeUnit.SECONDS)
+                .ignoreExceptions()
+                .pollInterval(3, TimeUnit.SECONDS)
+                .pollDelay(10, TimeUnit.SECONDS)
+                .untilAsserted(
+                        () -> {
+                            Assertions.assertEquals(
+                                    20,
+                                    esRestClient
+                                            .getIndexDocsCount("st_fake_table")
+                                            .get(0)
+                                            .getDocsCount());
+                        });
     }
 
     @TestTemplate
@@ -802,6 +827,22 @@ public class ElasticsearchIT extends TestSuiteBase implements TestResource {
         elasticSearchCatalog.dropTable(tablePath, false);
         Assertions.assertFalse(
                 elasticSearchCatalog.tableExists(tablePath), "Index should be dropped");
+
+        // st_index always exist
+        Assertions.assertThrows(
+                DatabaseAlreadyExistException.class,
+                () -> elasticSearchCatalog.createDatabase(TablePath.of("", "st_index"), false));
+        Assertions.assertDoesNotThrow(
+                () -> elasticSearchCatalog.createDatabase(TablePath.of("", "st_index"), true));
+
+        // create index
+        Assertions.assertDoesNotThrow(
+                () -> elasticSearchCatalog.createTable(TablePath.of("", "tmp_index"), null, false));
+        Assertions.assertDoesNotThrow(
+                () -> elasticSearchCatalog.dropDatabase(TablePath.of("", "tmp_index"), false));
+        Assertions.assertThrows(
+                DatabaseNotExistException.class,
+                () -> elasticSearchCatalog.dropDatabase(TablePath.of("", "tmp_index"), false));
 
         elasticSearchCatalog.close();
     }

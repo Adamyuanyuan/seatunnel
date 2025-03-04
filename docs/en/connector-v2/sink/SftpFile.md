@@ -61,8 +61,11 @@ By default, we use 2PC commit to ensure `exactly-once`
 | xml_row_tag                           | string  | no       | RECORD                                     | Only used when file_format is xml.                                                                                |
 | xml_use_attr_format                   | boolean | no       | -                                          | Only used when file_format is xml.                                                                                |
 | parquet_avro_write_timestamp_as_int96 | boolean | no       | false                                      | Only used when file_format is parquet.                                                                            |
+| enable_header_write                   | boolean | no       | false                                      | Only used when file_format_type is text,csv.<br/> false:don't write header,true:write header.     |
 | parquet_avro_write_fixed_as_int96     | array   | no       | -                                          | Only used when file_format is parquet.                                                                            |
 | encoding                              | string  | no       | "UTF-8"                                    | Only used when file_format_type is json,text,csv,xml.                                                             |
+| schema_save_mode                      | string  | no       | CREATE_SCHEMA_WHEN_NOT_EXIST               | Existing dir processing method                                                                    |
+| data_save_mode                        | string  | no       | APPEND_DATA                                | Existing data processing method                                                                   |
 
 ### host [string]
 
@@ -215,10 +218,27 @@ Support writing Parquet INT96 from a timestamp, only valid for parquet files.
 
 Support writing Parquet INT96 from a 12-byte field, only valid for parquet files.
 
+### enable_header_write [boolean]
+
+Only used when file_format_type is text,csv.false:don't write header,true:write header.
+
 ### encoding [string]
 
 Only used when file_format_type is json,text,csv,xml.
 The encoding of the file to write. This param will be parsed by `Charset.forName(encoding)`.
+
+### schema_save_mode [string]
+Existing dir processing method.
+- RECREATE_SCHEMA: will create when the dir does not exist, delete and recreate when the dir is exist
+- CREATE_SCHEMA_WHEN_NOT_EXIST: will create when the dir does not exist, skipped when the dir is exist
+- ERROR_WHEN_SCHEMA_NOT_EXIST: error will be reported when the dir does not exist
+- IGNORE ：Ignore the treatment of the table
+
+### data_save_mode [string]
+Existing data processing method.
+- DROP_DATA: preserve dir and delete data files
+- APPEND_DATA: preserve dir, preserve data files
+- ERROR_WHEN_DATA_EXISTS: when there is data files, an error is reported
 
 ## Example
 
@@ -246,6 +266,35 @@ SftpFile {
     sink_columns = ["name","age"]
     is_enable_transaction = true
 }
+
+```
+
+When our source end is multiple tables, and wants different expressions to different directory, we can configure this way
+
+```hocon
+SftpFile {
+    host = "xxx.xxx.xxx.xxx"
+    port = 22
+    user = "username"
+    password = "password"
+    path = "/data/sftp/seatunnel/job1/${table_name}"
+    tmp_path = "/data/sftp/seatunnel/tmp"
+    file_format_type = "text"
+    field_delimiter = "\t"
+    row_delimiter = "\n"
+    have_partition = true
+    partition_by = ["age"]
+    partition_dir_expression = "${k0}=${v0}"
+    is_partition_field_write_in_file = true
+    custom_filename = true
+    file_name_expression = "${transactionId}_${now}"
+    filename_time_format = "yyyy.MM.dd"
+    sink_columns = ["name","age"]
+    is_enable_transaction = true
+    schema_save_mode=RECREATE_SCHEMA
+    data_save_mode=DROP_DATA
+}
+
 
 ```
 

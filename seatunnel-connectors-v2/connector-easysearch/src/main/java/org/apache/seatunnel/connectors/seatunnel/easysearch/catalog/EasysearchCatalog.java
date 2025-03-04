@@ -17,6 +17,7 @@
 
 package org.apache.seatunnel.connectors.seatunnel.easysearch.catalog;
 
+import org.apache.seatunnel.shade.com.google.common.collect.Lists;
 import org.apache.seatunnel.shade.com.typesafe.config.Config;
 
 import org.apache.seatunnel.api.configuration.util.ConfigUtil;
@@ -38,14 +39,12 @@ import org.apache.seatunnel.connectors.seatunnel.easysearch.dto.source.IndexDocs
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.Lists;
-
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static org.apache.seatunnel.shade.com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Easysearch catalog implementation.
@@ -175,11 +174,10 @@ public class EasysearchCatalog implements Catalog {
         // Create the index
         checkNotNull(tablePath, "tablePath cannot be null");
         if (tableExists(tablePath)) {
-            if (ignoreIfExists) {
-                return;
-            } else {
+            if (!ignoreIfExists) {
                 throw new TableAlreadyExistException(catalogName, tablePath, null);
             }
+            return;
         }
         ezsClient.createIndex(tablePath.getTableName());
     }
@@ -188,8 +186,11 @@ public class EasysearchCatalog implements Catalog {
     public void dropTable(TablePath tablePath, boolean ignoreIfNotExists)
             throws TableNotExistException, CatalogException {
         checkNotNull(tablePath);
-        if (!tableExists(tablePath) && !ignoreIfNotExists) {
-            throw new TableNotExistException(catalogName, tablePath);
+        if (!tableExists(tablePath)) {
+            if (!ignoreIfNotExists) {
+                throw new TableNotExistException(catalogName, tablePath);
+            }
+            return;
         }
         try {
             ezsClient.dropIndex(tablePath.getTableName());
@@ -205,13 +206,21 @@ public class EasysearchCatalog implements Catalog {
     @Override
     public void createDatabase(TablePath tablePath, boolean ignoreIfExists)
             throws DatabaseAlreadyExistException, CatalogException {
-        createTable(tablePath, null, ignoreIfExists);
+        try {
+            createTable(tablePath, null, ignoreIfExists);
+        } catch (TableAlreadyExistException ex) {
+            throw new DatabaseAlreadyExistException(catalogName, tablePath.getDatabaseName());
+        }
     }
 
     @Override
     public void dropDatabase(TablePath tablePath, boolean ignoreIfNotExists)
             throws DatabaseNotExistException, CatalogException {
-        dropTable(tablePath, ignoreIfNotExists);
+        try {
+            dropTable(tablePath, ignoreIfNotExists);
+        } catch (TableNotExistException ex) {
+            throw new DatabaseNotExistException(catalogName, tablePath.getDatabaseName());
+        }
     }
 
     private Map<String, String> buildTableOptions(TablePath tablePath) {

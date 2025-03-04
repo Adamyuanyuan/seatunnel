@@ -42,12 +42,14 @@ import org.apache.seatunnel.connectors.seatunnel.jdbc.source.JdbcSourceFactory;
 import org.apache.seatunnel.connectors.seatunnel.jdbc.source.JdbcSourceSplit;
 import org.apache.seatunnel.connectors.seatunnel.jdbc.source.JdbcSourceSplitEnumerator;
 import org.apache.seatunnel.connectors.seatunnel.jdbc.state.JdbcSourceState;
+import org.apache.seatunnel.e2e.common.container.TestContainer;
 
 import org.apache.commons.lang3.tuple.Pair;
 
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
@@ -102,7 +104,7 @@ public class JdbcMysqlIT extends AbstractJdbcIT {
     private static final String CREATE_SQL =
             "CREATE TABLE IF NOT EXISTS %s\n"
                     + "(\n"
-                    + "    `c_bit_1`                bit(1)                DEFAULT NULL,\n"
+                    + "    `c-bit_1`                bit(1)                DEFAULT NULL,\n"
                     + "    `c_bit_8`                bit(8)                DEFAULT NULL,\n"
                     + "    `c_bit_16`               bit(16)               DEFAULT NULL,\n"
                     + "    `c_bit_32`               bit(32)               DEFAULT NULL,\n"
@@ -185,10 +187,11 @@ public class JdbcMysqlIT extends AbstractJdbcIT {
     }
 
     @Override
-    protected void compareResult(String executeKey) {
+    protected void checkResult(
+            String executeKey, TestContainer container, Container.ExecResult execResult) {
         String[] fieldNames =
                 new String[] {
-                    "c_bit_1",
+                    "c-bit_1",
                     "c_bit_8",
                     "c_bit_16",
                     "c_bit_32",
@@ -246,7 +249,7 @@ public class JdbcMysqlIT extends AbstractJdbcIT {
     Pair<String[], List<SeaTunnelRow>> initTestData() {
         String[] fieldNames =
                 new String[] {
-                    "c_bit_1",
+                    "c-bit_1",
                     "c_bit_8",
                     "c_bit_16",
                     "c_bit_32",

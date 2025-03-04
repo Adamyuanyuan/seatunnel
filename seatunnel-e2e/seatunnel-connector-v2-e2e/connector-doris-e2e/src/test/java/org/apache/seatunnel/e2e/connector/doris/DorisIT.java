@@ -61,9 +61,6 @@ import java.util.stream.Collectors;
 public class DorisIT extends AbstractDorisIT {
     private static final String UNIQUE_TABLE = "doris_e2e_unique_table";
     private static final String DUPLICATE_TABLE = "doris_duplicate_table";
-    private static final String DRIVER_JAR =
-            "https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.0.32/mysql-connector-j-8.0.32.jar";
-
     private static final String sourceDB = "e2e_source";
     private static final String sinkDB = "e2e_sink";
     private Connection conn;
@@ -203,6 +200,16 @@ public class DorisIT extends AbstractDorisIT {
                 container.executeJob("/doris_source_to_doris_sink_type_convertor.conf");
         Assertions.assertEquals(0, execResult3.getExitCode());
         checkAllTypeSinkData();
+    }
+
+    @TestTemplate
+    public void testNoSchemaDoris(TestContainer container)
+            throws IOException, InterruptedException {
+        initializeJdbcTable();
+        batchInsertUniqueTableData();
+        Container.ExecResult execResult1 = container.executeJob("/doris_source_no_schema.conf");
+        Assertions.assertEquals(0, execResult1.getExitCode());
+        checkSinkData();
     }
 
     private void checkAllTypeSinkData() {
@@ -415,6 +422,7 @@ public class DorisIT extends AbstractDorisIT {
                 // create source and sink table
                 statement.execute(createUniqueTableForTest(sourceDB));
                 statement.execute(createDuplicateTableForTest(sourceDB));
+                log.info("create source and sink table succeed");
             } catch (SQLException e) {
                 throw new RuntimeException("Initializing table failed!", e);
             }
@@ -741,7 +749,7 @@ public class DorisIT extends AbstractDorisIT {
     }
 
     public void getErrorUrl(String message) {
-        // 使用正则表达式匹配URL
+        // Using regular expressions to match URLs
         Pattern pattern = Pattern.compile("http://[\\w./?=&-_]+");
         Matcher matcher = pattern.matcher(message);
         String urlString = null;
@@ -757,12 +765,12 @@ public class DorisIT extends AbstractDorisIT {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
 
-            // 设置请求方法
+            // Set the request method
             connection.setRequestMethod("GET");
 
-            // 设置连接超时时间
+            // Set the connection timeout
             connection.setConnectTimeout(5000);
-            // 设置读取超时时间
+            // Set the read timeout
             connection.setReadTimeout(5000);
 
             int responseCode = connection.getResponseCode();

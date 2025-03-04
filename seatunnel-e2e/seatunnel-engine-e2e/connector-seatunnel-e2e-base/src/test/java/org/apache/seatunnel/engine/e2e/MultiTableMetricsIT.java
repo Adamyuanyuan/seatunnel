@@ -90,7 +90,8 @@ public class MultiTableMetricsIT {
                                                                     .getLocalMember()
                                                                     .getAddress()
                                                                     .getPort()
-                                                            + RestConstant.JOB_INFO_URL
+                                                            + RestConstant.CONTEXT_PATH
+                                                            + RestConstant.REST_URL_JOB_INFO
                                                             + "/"
                                                             + batchJobProxy.getJobId());
                             // In the test example, the data size of a single [3, "C", 100] is 13

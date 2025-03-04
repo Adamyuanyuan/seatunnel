@@ -75,7 +75,7 @@ SeaTunnel Engine 基于 [Hazelcast IMDG](https://docs.hazelcast.com/imdg/4.1/) �
 
 `backup count` 是定义同步备份数量的参数。例如，如果设置为 1，则分区的备份将放置在一个其他成员上。如果设置为 2，则将放置在两个其他成员上。
 
-我们建议 `backup-count` 的值为 `min(1, max(5, N/2))`。 `N` 是集群节点的数量。
+我们建议 `backup-count` 的值为 `max(1, min(5, N/2))`。 `N` 是集群节点的数量。
 
 ```yaml
 seatunnel:
@@ -284,6 +284,43 @@ netty-common-4.1.89.Final.jar
 seatunnel-hadoop3-3.1.4-uber.jar
 ```
 
+### 4.7 作业调度策略
+
+当资源不足时，作业调度策略可以配置为以下两种模式：
+
+1. `WAIT`：等待资源可用。
+2. `REJECT`：拒绝作业，默认值。
+
+示例
+
+```yaml
+seatunnel:
+  engine:
+    job-schedule-strategy: WAIT
+```
+
+当`dynamic-slot: ture`时，`job-schedule-strategy: WAIT` 配置会失效，将被强制修改为`job-schedule-strategy: REJECT`，因为动态Slot时该参数没有意义，可以直接提交。
+
+### 4.8 Coordinator Service
+
+CoordinatorService 提供了每个作业从 LogicalDag 到 ExecutionDag，再到 PhysicalDag 的生成流程， 并最终创建作业的 JobMaster 进行作业的调度执行和状态监控
+
+**core-thread-num**
+
+配置 CoordinatorService 线程池核心线程数量
+
+**max-thread-num**
+
+同时可执行的最大作业数量
+
+Example
+
+```yaml
+coordinator-service:
+  core-thread-num: 30
+  max-thread-num: 1000
+```
+
 ## 5. 配置 SeaTunnel Engine 网络服务
 
 所有 SeaTunnel Engine 网络相关的配置都在 `hazelcast-master.yaml`和`hazelcast-worker.yaml` 文件中.
@@ -404,7 +441,22 @@ export SEATUNNEL_HOME=${seatunnel install path}
 export PATH=$PATH:$SEATUNNEL_HOME/bin
 ```
 
-### 8.2 配置 SeaTunnel Engine 客户端
+## 8. 提交作业和管理作业
+
+### 8.1 使用 SeaTunnel Engine 客户端提交作业
+
+#### 安装 SeaTunnel Engine 客户端
+
+##### 设置和服务器一样的`SEATUNNEL_HOME`
+
+您可以通过添加 `/etc/profile.d/seatunnel.sh` 文件来配置 `SEATUNNEL_HOME` 。`/etc/profile.d/seatunnel.sh` 的内容如下：
+
+```
+export SEATUNNEL_HOME=${seatunnel install path}
+export PATH=$PATH:$SEATUNNEL_HOME/bin
+```
+
+##### 配置 SeaTunnel Engine 客户端
 
 所有 SeaTunnel Engine 客户端的配置都在 `hazelcast-client.yaml` 里。
 
@@ -427,6 +479,10 @@ hazelcast-client:
       - master-node-2:5801
 ```
 
-## 9. 提交作业和管理作业
+#### 提交作业和管理作业
 
 现在集群部署完成了，您可以通过以下教程完成作业的提交和管理：[提交和管理作业](user-command.md)
+
+### 8.2 使用 REST API 提交作业
+
+SeaTunnel Engine 提供了 REST API 用于提交作业。有关详细信息，请参阅 [REST API V2](rest-api-v2.md)

@@ -61,14 +61,16 @@ import static org.apache.seatunnel.connectors.seatunnel.typesense.exception.Type
 @Slf4j
 public class TypesenseClient {
     private final Client tsClient;
+    private final ObjectMapper mapper;
 
     TypesenseClient(Client tsClient) {
         this.tsClient = tsClient;
+        this.mapper = new ObjectMapper();
     }
 
     public static TypesenseClient createInstance(ReadonlyConfig config) {
         List<String> hosts = config.get(TypesenseConnectionConfig.HOSTS);
-        String protocol = config.get(TypesenseConnectionConfig.protocol);
+        String protocol = config.get(TypesenseConnectionConfig.PROTOCOL);
         String apiKey = config.get(TypesenseConnectionConfig.APIKEY);
         return createInstance(hosts, apiKey, protocol);
     }
@@ -120,8 +122,7 @@ public class TypesenseClient {
         SearchParameters searchParameters;
         if (StringUtils.isNotBlank(query)) {
             String jsonQuery = URLParamsConverter.convertParamsToJson(query);
-            ObjectMapper objectMapper = new ObjectMapper();
-            searchParameters = objectMapper.readValue(jsonQuery, SearchParameters.class);
+            searchParameters = mapper.readValue(jsonQuery, SearchParameters.class);
         } else {
             searchParameters = new SearchParameters().q("*");
         }

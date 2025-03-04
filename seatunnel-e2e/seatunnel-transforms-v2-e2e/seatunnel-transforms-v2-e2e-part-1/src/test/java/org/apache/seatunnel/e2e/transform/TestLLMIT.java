@@ -89,10 +89,26 @@ public class TestLLMIT extends TestSuiteBase implements TestResource {
     }
 
     @TestTemplate
+    public void testLLMWithOpenAIMultiTable(TestContainer container)
+            throws IOException, InterruptedException {
+        Container.ExecResult execResult =
+                container.executeJob("/llm_openai_transform_multi_table.conf");
+        Assertions.assertEquals(0, execResult.getExitCode());
+    }
+
+    @TestTemplate
+    public void testLLMWithMicrosoft(TestContainer container)
+            throws IOException, InterruptedException {
+        Container.ExecResult execResult = container.executeJob("/llm_microsoft_transform.conf");
+        Assertions.assertEquals(0, execResult.getExitCode());
+    }
+
+    @TestTemplate
     public void testLLMWithOpenAIBoolean(TestContainer container)
             throws IOException, InterruptedException {
         Container.ExecResult execResult =
                 container.executeJob("/llm_openai_transform_boolean.conf");
+        Assertions.assertEquals(0, execResult.getExitCode());
     }
 
     @TestTemplate
@@ -104,9 +120,24 @@ public class TestLLMIT extends TestSuiteBase implements TestResource {
     }
 
     @TestTemplate
+    public void testLLMWithOpenAIOutputColumnName(TestContainer container)
+            throws IOException, InterruptedException {
+        Container.ExecResult execResult =
+                container.executeJob("/llm_openai_transform_custom_output_name.conf");
+        Assertions.assertEquals(0, execResult.getExitCode());
+    }
+
+    @TestTemplate
     public void testLLMWithCustomModel(TestContainer container)
             throws IOException, InterruptedException {
         Container.ExecResult execResult = container.executeJob("/llm_transform_custom.conf");
+        Assertions.assertEquals(0, execResult.getExitCode());
+    }
+
+    @TestTemplate
+    public void testLLMWithKimiAI(TestContainer container)
+            throws IOException, InterruptedException {
+        Container.ExecResult execResult = container.executeJob("/llm_kimiai_transform.conf");
         Assertions.assertEquals(0, execResult.getExitCode());
     }
 }

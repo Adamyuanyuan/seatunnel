@@ -22,11 +22,11 @@ package org.apache.seatunnel.connectors.seatunnel.iceberg.sink.writer;
 import org.apache.seatunnel.shade.com.google.common.collect.Lists;
 
 import org.apache.seatunnel.api.table.catalog.Column;
-import org.apache.seatunnel.api.table.event.AlterTableAddColumnEvent;
-import org.apache.seatunnel.api.table.event.AlterTableChangeColumnEvent;
-import org.apache.seatunnel.api.table.event.AlterTableDropColumnEvent;
-import org.apache.seatunnel.api.table.event.AlterTableModifyColumnEvent;
-import org.apache.seatunnel.api.table.event.SchemaChangeEvent;
+import org.apache.seatunnel.api.table.schema.event.AlterTableAddColumnEvent;
+import org.apache.seatunnel.api.table.schema.event.AlterTableChangeColumnEvent;
+import org.apache.seatunnel.api.table.schema.event.AlterTableDropColumnEvent;
+import org.apache.seatunnel.api.table.schema.event.AlterTableModifyColumnEvent;
+import org.apache.seatunnel.api.table.schema.event.SchemaChangeEvent;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
 import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
 import org.apache.seatunnel.connectors.seatunnel.iceberg.config.SinkConfig;
@@ -52,7 +52,7 @@ public class IcebergRecordWriter implements RecordWriter {
     private final Table table;
     private final SinkConfig config;
     private final List<WriteResult> writerResults;
-    private TaskWriter<Record> writer;
+    private volatile TaskWriter<Record> writer;
     private RowConverter recordConverter;
     private final IcebergWriterFactory writerFactory;
 
@@ -62,7 +62,6 @@ public class IcebergRecordWriter implements RecordWriter {
         this.writerResults = Lists.newArrayList();
         this.recordConverter = new RowConverter(table, config);
         this.writerFactory = writerFactory;
-        this.writer = createTaskWriter();
     }
 
     private TaskWriter<Record> createTaskWriter() {
@@ -71,6 +70,9 @@ public class IcebergRecordWriter implements RecordWriter {
 
     @Override
     public void write(SeaTunnelRow seaTunnelRow, SeaTunnelRowType rowType) {
+        if (writer == null) {
+            resetWriter();
+        }
         SchemaChangeWrapper updates = new SchemaChangeWrapper();
         Record record = recordConverter.convert(seaTunnelRow, rowType, updates);
         if (!updates.empty()) {
@@ -91,6 +93,8 @@ public class IcebergRecordWriter implements RecordWriter {
     public void applySchemaChange(SeaTunnelRowType afterRowType, SchemaChangeEvent event) {
         log.info("Apply schema change start.");
         SchemaChangeWrapper updates = new SchemaChangeWrapper();
+        // get the latest schema in case another process updated it
+        table.refresh();
         Schema schema = table.schema();
         if (event instanceof AlterTableDropColumnEvent) {
             AlterTableDropColumnEvent dropColumnEvent = (AlterTableDropColumnEvent) event;
@@ -137,7 +141,6 @@ public class IcebergRecordWriter implements RecordWriter {
         flush();
         List<WriteResult> result = Lists.newArrayList(writerResults);
         writerResults.clear();
-        resetWriter();
         return result;
     }
 

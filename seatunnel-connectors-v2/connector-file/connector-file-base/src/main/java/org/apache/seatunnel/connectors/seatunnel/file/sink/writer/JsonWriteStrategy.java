@@ -18,8 +18,8 @@
 package org.apache.seatunnel.connectors.seatunnel.file.sink.writer;
 
 import org.apache.seatunnel.api.serialization.SerializationSchema;
+import org.apache.seatunnel.api.table.catalog.CatalogTable;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
-import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
 import org.apache.seatunnel.common.exception.CommonError;
 import org.apache.seatunnel.common.exception.CommonErrorCodeDeprecated;
 import org.apache.seatunnel.common.utils.EncodingUtils;
@@ -37,9 +37,7 @@ import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class JsonWriteStrategy extends AbstractWriteStrategy {
     private final byte[] rowDelimiter;
@@ -57,13 +55,12 @@ public class JsonWriteStrategy extends AbstractWriteStrategy {
     }
 
     @Override
-    public void setSeaTunnelRowTypeInfo(SeaTunnelRowType seaTunnelRowType) {
-        super.setSeaTunnelRowTypeInfo(seaTunnelRowType);
-        List<Integer> sinkColumnsIndexInRowAfterFilter =
-                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
+    public void setCatalogTable(CatalogTable catalogTable) {
+        super.setCatalogTable(catalogTable);
         this.serializationSchema =
                 new JsonSerializationSchema(
-                        buildSchemaWithRowType(seaTunnelRowType, sinkColumnsIndexInRowAfterFilter),
+                        buildSchemaWithRowType(
+                                catalogTable.getSeaTunnelRowType(), sinkColumnsIndexInRow),
                         charset);
     }
 
@@ -72,13 +69,11 @@ public class JsonWriteStrategy extends AbstractWriteStrategy {
         super.write(seaTunnelRow);
         String filePath = getOrCreateFilePathBeingWritten(seaTunnelRow);
         FSDataOutputStream fsDataOutputStream = getOrCreateOutputStream(filePath);
-        List<Integer> sinkColumnsIndexInRowAfterFilter =
-                sinkColumnsIndexInRow.stream().filter(e -> e != null).collect(Collectors.toList());
         try {
             byte[] rowBytes =
                     serializationSchema.serialize(
                             seaTunnelRow.copy(
-                                    sinkColumnsIndexInRowAfterFilter.stream()
+                                    sinkColumnsIndexInRow.stream()
                                             .mapToInt(Integer::intValue)
                                             .toArray()));
             if (isFirstWrite.get(filePath)) {

@@ -166,7 +166,7 @@ public class ConfigShadeTest {
             Assertions.assertEquals(list1.get(1), "de~");
             Assertions.assertEquals(list1.get(2), "f h");
             Assertions.assertEquals(sourceConfig.getInt("row.num"), rowNum);
-            Assertions.assertEquals(sourceConfig.getString("result_table_name"), resName);
+            Assertions.assertEquals(sourceConfig.getString("plugin_output"), resName);
         }
         List<? extends ConfigObject> transformConfigs = config.getObjectList("transform");
         for (ConfigObject configObject : transformConfigs) {
@@ -190,16 +190,14 @@ public class ConfigShadeTest {
     public void testVariableReplacementWithDefaultValue() throws URISyntaxException {
         String jobName = "seatunnel variable test job";
         Assertions.assertEquals(System.getenv("jobName"), jobName);
-        String ageType = "int";
-        String sourceTableName = "sql";
+        String pluginInputIdentifier = "sql";
         String containSpaceString = "f h";
         List<String> variables = new ArrayList<>();
         variables.add("strTemplate=[abc,de~," + containSpaceString + "]");
-        variables.add("ageType=" + ageType);
         // Set the environment variable value nameVal to `f h` to verify whether setting the space
         // through the environment variable is effective
         System.setProperty("nameValForEnv", containSpaceString);
-        variables.add("sourceTableName=" + sourceTableName);
+        variables.add("pluginInputIdentifier=" + pluginInputIdentifier);
         URL resource =
                 ConfigShadeTest.class.getResource("/config_variables_with_default_value.conf");
         Assertions.assertNotNull(resource);
@@ -214,7 +212,11 @@ public class ConfigShadeTest {
             Assertions.assertEquals(list1.get(1), "de~");
             Assertions.assertEquals(list1.get(2), containSpaceString);
             Assertions.assertEquals(sourceConfig.getInt("row.num"), 50);
-            Assertions.assertEquals(sourceConfig.getString("result_table_name"), "fake_test_table");
+            // Verify when verifying without setting variables, ${xxx} should be retained
+            Assertions.assertEquals(
+                    sourceConfig.getConfig("schema").getConfig("fields").getString("age"),
+                    "${ageType}");
+            Assertions.assertEquals(sourceConfig.getString("plugin_output"), "fake_test_table");
         }
         List<? extends ConfigObject> transformConfigs = config.getObjectList("transform");
         for (ConfigObject configObject : transformConfigs) {
@@ -226,7 +228,7 @@ public class ConfigShadeTest {
         List<? extends ConfigObject> sinkConfigs = config.getObjectList("sink");
         for (ConfigObject sinkObject : sinkConfigs) {
             Config sinkConfig = sinkObject.toConfig();
-            Assertions.assertEquals(sinkConfig.getString("source_table_name"), sourceTableName);
+            Assertions.assertEquals(sinkConfig.getString("plugin_input"), pluginInputIdentifier);
         }
     }
 

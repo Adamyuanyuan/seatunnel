@@ -26,6 +26,7 @@ import org.apache.seatunnel.api.table.type.SeaTunnelRow;
 import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
 import org.apache.seatunnel.translation.serialization.RowConverter;
 import org.apache.seatunnel.translation.spark.utils.InstantConverterUtils;
+import org.apache.seatunnel.translation.spark.utils.OffsetDateTimeUtils;
 import org.apache.seatunnel.translation.spark.utils.TypeConverterUtils;
 
 import org.apache.spark.sql.catalyst.InternalRow;
@@ -48,17 +49,21 @@ import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.unsafe.types.UTF8String;
 
+import scala.Some;
 import scala.Tuple2;
 import scala.collection.immutable.HashMap.HashTrieMap;
+import scala.collection.immutable.List;
 import scala.collection.mutable.WrappedArray;
 
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -100,6 +105,8 @@ public final class InternalRowConverter extends RowConverter<InternalRow> {
             case TIMESTAMP:
                 return InstantConverterUtils.toEpochMicro(
                         Timestamp.valueOf((LocalDateTime) field).toInstant());
+            case TIMESTAMP_TZ:
+                return Decimal.apply(OffsetDateTimeUtils.toBigDecimal((OffsetDateTime) field));
             case MAP:
                 return convertMap((Map<?, ?>) field, (MapType<?, ?>) dataType);
             case STRING:
@@ -107,21 +114,27 @@ public final class InternalRowConverter extends RowConverter<InternalRow> {
             case DECIMAL:
                 return Decimal.apply((BigDecimal) field);
             case ARRAY:
+                Class<?> elementTypeClass =
+                        ((ArrayType<?, ?>) dataType).getElementType().getTypeClass();
                 // if string array, we need to covert every item in array from String to UTF8String
                 if (((ArrayType<?, ?>) dataType).getElementType().equals(BasicType.STRING_TYPE)) {
                     Object[] fields = (Object[]) field;
-                    Object[] objects =
+                    UTF8String[] objects =
                             Arrays.stream(fields)
                                     .map(v -> UTF8String.fromString((String) v))
-                                    .toArray();
+                                    .toArray(UTF8String[]::new);
                     return ArrayData.toArrayData(objects);
                 }
                 // except string, now only support convert boolean int tinyint smallint bigint float
                 // double, because SeaTunnel Array only support these types
+                Object array = Array.newInstance(elementTypeClass, ((Object[]) field).length);
+                for (int i = 0; i < ((Object[]) field).length; i++) {
+                    Array.set(array, i, ((Object[]) field)[i]);
+                }
                 return ArrayData.toArrayData(field);
             default:
-                if (field instanceof scala.Some) {
-                    return ((scala.Some<?>) field).get();
+                if (field instanceof Some) {
+                    return ((Some<?>) field).get();
                 }
                 return field;
         }
@@ -209,8 +222,8 @@ public final class InternalRowConverter extends RowConverter<InternalRow> {
         Map<Object, Object> newMap = new LinkedHashMap<>(num);
         SeaTunnelDataType<?> keyType = mapType.getKeyType();
         SeaTunnelDataType<?> valueType = mapType.getValueType();
-        scala.collection.immutable.List<?> keyList = hashTrieMap.keySet().toList();
-        scala.collection.immutable.List<?> valueList = hashTrieMap.values().toList();
+        List<?> keyList = hashTrieMap.keySet().toList();
+        List<?> valueList = hashTrieMap.values().toList();
         for (int i = 0; i < num; i++) {
             Object key = keyList.apply(i);
             Object value = valueList.apply(i);
@@ -291,6 +304,14 @@ public final class InternalRowConverter extends RowConverter<InternalRow> {
                 }
                 return Timestamp.from(InstantConverterUtils.ofEpochMicro((long) field))
                         .toLocalDateTime();
+            case TIMESTAMP_TZ:
+                BigDecimal timeWithDecimal = null;
+                if (field instanceof Decimal) {
+                    timeWithDecimal = ((Decimal) field).toJavaBigDecimal();
+                } else if (field instanceof BigDecimal) {
+                    timeWithDecimal = (BigDecimal) field;
+                }
+                return OffsetDateTimeUtils.toOffsetDateTime(timeWithDecimal);
             case MAP:
                 if (field instanceof MapData) {
                     return reconvertMap((MapData) field, (MapType<?, ?>) dataType);
@@ -339,14 +360,17 @@ public final class InternalRowConverter extends RowConverter<InternalRow> {
     }
 
     private static Object reconvertArray(ArrayData arrayData, ArrayType<?, ?> arrayType) {
+        Class<?> elementTypeClass = arrayType.getElementType().getTypeClass();
         if (arrayData == null || arrayData.numElements() == 0) {
             return Collections.emptyList().toArray();
         }
-        Object[] newArray = new Object[arrayData.numElements()];
+        Object[] newArray = (Object[]) Array.newInstance(elementTypeClass, arrayData.numElements());
         Object[] values =
                 arrayData.toObjectArray(TypeConverterUtils.convert(arrayType.getElementType()));
         for (int i = 0; i < arrayData.numElements(); i++) {
-            newArray[i] = reconvert(values[i], arrayType.getElementType());
+            Object reconvert =
+                    elementTypeClass.cast(reconvert(values[i], arrayType.getElementType()));
+            newArray[i] = reconvert;
         }
         return newArray;
     }

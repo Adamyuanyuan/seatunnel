@@ -23,29 +23,27 @@ import org.apache.seatunnel.api.sink.DataSaveMode;
 import org.apache.seatunnel.api.sink.SchemaSaveMode;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.apache.seatunnel.api.sink.DataSaveMode.APPEND_DATA;
 import static org.apache.seatunnel.api.sink.DataSaveMode.DROP_DATA;
 import static org.apache.seatunnel.api.sink.DataSaveMode.ERROR_WHEN_DATA_EXISTS;
 
-public class MilvusSinkConfig {
-
-    public static final String CONNECTOR_IDENTITY = "Milvus";
-
-    public static final Option<String> URL =
-            Options.key("url")
-                    .stringType()
-                    .noDefaultValue()
-                    .withDescription("Milvus public endpoint");
-
-    public static final Option<String> TOKEN =
-            Options.key("token")
-                    .stringType()
-                    .noDefaultValue()
-                    .withDescription("Milvus token for authentication");
+public class MilvusSinkConfig extends MilvusCommonConfig {
 
     public static final Option<String> DATABASE =
             Options.key("database").stringType().noDefaultValue().withDescription("database");
+    public static final Option<Map<String, String>> COLLECTION_DESCRIPTION =
+            Options.key("collection_description")
+                    .mapType()
+                    .defaultValue(new HashMap<>())
+                    .withDescription("collection description");
+    public static final Option<String> PARTITION_KEY =
+            Options.key("partition_key")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("Milvus partition key field");
 
     public static final Option<SchemaSaveMode> SCHEMA_SAVE_MODE =
             Options.key("schema_save_mode")
@@ -84,4 +82,19 @@ public class MilvusSinkConfig {
                     .intType()
                     .defaultValue(1000)
                     .withDescription("writer batch size");
+    public static final Option<Integer> RATE_LIMIT =
+            Options.key("rate_limit")
+                    .intType()
+                    .defaultValue(100000)
+                    .withDescription("writer rate limit");
+    public static final Option<Boolean> LOAD_COLLECTION =
+            Options.key("load_collection")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("if load collection");
+    public static final Option<Boolean> CREATE_INDEX =
+            Options.key("create_index")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("if load collection");
 }
