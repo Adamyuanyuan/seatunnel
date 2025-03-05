@@ -49,8 +49,6 @@ public class DorisSource
         this.dorisSourceTables = dorisSourceTables;
     }
 
-    public DorisSource() {}
-
     @Override
     public String getPluginName() {
         return "Doris";
