@@ -192,61 +192,103 @@ public class OracleDialect implements JdbcDialect {
     @Override
     public Long approximateRowCntStatement(Connection connection, JdbcSourceTable table)
             throws SQLException {
-
         // 1. Use select count
         // 2. If no query is configured, use TABLE STATUS.
         // 3. If a query is configured but does not contain a WHERE clause and tablePath is
         // configured, use TABLE STATUS.
         // 4. If a query is configured with a WHERE clause, or a query statement is configured but
         // tablePath is TablePath.DEFAULT, use COUNT(*).
-
         String query = table.getQuery();
+        TablePath tablePath = table.getTablePath();
+        log.info("Starting approximateRowCntStatement for table: {}", tablePath);
+
+        if (tablePath == null) {
+            log.warn("Table path is null, falling back to COUNT(*) query");
+            Long count = SQLUtils.countForSubquery(connection, query);
+            log.info("COUNT(*) query result for null table path: {}", count);
+            return count;
+        }
 
         boolean useTableStats =
                 StringUtils.isBlank(query)
                         || (!query.toLowerCase().contains("where")
-                                && table.getTablePath() != null
+                                && tablePath != null
                                 && !TablePath.DEFAULT
                                         .getFullName()
-                                        .equals(table.getTablePath().getFullName()));
+                                        .equals(tablePath.getFullName()));
 
-        if (table.getUseSelectCount()) {
+        // 打印getUseSelectCount()的值
+        log.info("table.getUseSelectCount(): {}", table.getUseSelectCount());
+        // 添加空值检查
+        Boolean useSelectCount = table.getUseSelectCount();
+        if (useSelectCount != null && useSelectCount) {
             useTableStats = false;
+            log.info("Forced to use COUNT(*) due to useSelectCount=true");
             if (StringUtils.isBlank(query)) {
-                query = "SELECT * FROM " + tableIdentifier(table.getTablePath());
+                query = "SELECT * FROM " + tableIdentifier(tablePath);
+                log.info("Generated COUNT(*) query: {}", query);
             }
         }
 
         if (useTableStats) {
-            TablePath tablePath = table.getTablePath();
+            String schemaName = tablePath.getSchemaName();
+            String tableName = tablePath.getTableName();
+            log.info("Attempting to get table stats for {}.{}", schemaName, tableName);
+            if (StringUtils.isBlank(schemaName) || StringUtils.isBlank(tableName)) {
+                log.warn("Schema name or table name is blank, falling back to COUNT(*) query");
+                Long count = SQLUtils.countForTable(connection, tableIdentifier(tablePath));
+                log.info("COUNT(*) query result for blank schema/table: {}", count);
+                return count;
+            }
+
             String rowCountQuery =
                     String.format(
-                            "select NUM_ROWS from all_tables where OWNER = '%s' AND TABLE_NAME = '%s' ",
-                            tablePath.getSchemaName(), tablePath.getTableName());
-            try (Statement stmt = connection.createStatement()) {
+                            "select NUM_ROWS from all_tables where OWNER = ? AND TABLE_NAME = ?");
+
+            try (PreparedStatement stmt = connection.prepareStatement(rowCountQuery)) {
+                stmt.setString(1, schemaName);
+                stmt.setString(2, tableName);
+
                 String analyzeTable =
                         String.format(
-                                "analyze table %s compute statistics for table",
-                                tableIdentifier(tablePath));
-                if (!table.getSkipAnalyze()) {
-                    log.info("Split Chunk, approximateRowCntStatement: {}", analyzeTable);
-                    stmt.execute(analyzeTable);
-                } else {
-                    log.warn("Skip analyze, approximateRowCntStatement: {}", analyzeTable);
-                }
-                log.info("Split Chunk, approximateRowCntStatement: {}", rowCountQuery);
-                try (ResultSet rs = stmt.executeQuery(rowCountQuery)) {
-                    if (!rs.next()) {
-                        throw new SQLException(
-                                String.format(
-                                        "No result returned after running query [%s]",
-                                        rowCountQuery));
+                                "analyze table \"%s\".\"%s\" compute statistics for table",
+                                schemaName, tableName);
+
+                // 添加空值检查，如果getSkipAnalyze()返回null，默认为false
+                Boolean skipAnalyze = table.getSkipAnalyze();
+                if (skipAnalyze == null || !skipAnalyze) {
+                    try (Statement analyzeStmt = connection.createStatement()) {
+                        analyzeStmt.execute(analyzeTable);
+                        log.info("Successfully analyzed table {}.{}", schemaName, tableName);
+                    } catch (SQLException e) {
+                        log.warn(
+                                "Failed to analyze table {}.{}: {}",
+                                schemaName,
+                                tableName,
+                                e.getMessage());
                     }
-                    return rs.getLong(1);
+                } else {
+                    log.info("Skipping analyze table command due to skipAnalyze=true");
                 }
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (!rs.next()) {
+                        Long count = SQLUtils.countForTable(connection, tableIdentifier(tablePath));
+                        return count;
+                    }
+                    Long count = rs.getLong(1);
+                    if (count == 0) {
+                        count = SQLUtils.countForTable(connection, tableIdentifier(tablePath));
+                        return count;
+                    }
+                    return count;
+                }
+            } catch (SQLException e) {
+                Long count = SQLUtils.countForTable(connection, tableIdentifier(tablePath));
+                return count;
             }
         }
-        return SQLUtils.countForSubquery(connection, query);
+        Long count = SQLUtils.countForSubquery(connection, query);
+        return count;
     }
 
     @Override

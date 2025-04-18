@@ -20,8 +20,8 @@ package org.apache.seatunnel.connectors.seatunnel.jdbc.internal.dialect.sourcety
 public enum DatabaseTypeEnum {
     MYSQL("MySQL"),
     ORACLE("Oracle"),
-    SQLSERVER("SqlServer");
-
+    SQLSERVER("SqlServer"),
+    POSTGRESQL("Postgres");
     private final String value;
 
     DatabaseTypeEnum(String value) {

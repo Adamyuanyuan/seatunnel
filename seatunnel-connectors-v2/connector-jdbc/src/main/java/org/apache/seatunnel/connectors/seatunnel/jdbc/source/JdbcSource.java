@@ -51,7 +51,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -71,54 +70,113 @@ public class JdbcSource
         JdbcDialect jdbcDialect =
                 JdbcDialectLoader.load(
                         jdbcConnectionConfig.getUrl(), jdbcConnectionConfig.getCompatibleMode());
+        LOG.info("Using JDBC dialect: {}", jdbcDialect.dialectName());
         JdbcConnectionProvider connectionProvider =
                 jdbcDialect.getJdbcConnectionProvider(jdbcSourceConfig.getJdbcConnectionConfig());
         Connection connection = connectionProvider.getOrEstablishConnection();
         List<JdbcSourceTableConfig> jdbcSourceTableConfigs = new ArrayList<>();
         ResultSet rs = null;
         PreparedStatement ps = null;
-        boolean containsInstances = true;
         List<JdbcSourceTableConfig> tablePaths = jdbcSourceConfig.getTableConfigList();
+        LOG.info("Processing {} table configurations", tablePaths.size());
         try {
             for (JdbcSourceTableConfig tableConfig : tablePaths) {
                 List<String> schemaTables = new ArrayList<>();
                 String tablePath = tableConfig.getTablePath();
                 String query = tableConfig.getQuery();
+                LOG.info("Processing table path: {}, custom query: {}", tablePath, query);
                 String sql;
                 if (StringUtils.isBlank(query)) {
                     String schemaName;
                     if (jdbcDialect.dialectName().startsWith(DatabaseTypeEnum.ORACLE.getValue())) {
-                        schemaName = tablePath.split("\\.")[1];
+                        schemaName = tablePath.split("\\.")[0];
                         sql = "SELECT OWNER, TABLE_NAME FROM dba_tables where OWNER=?";
+                        ps = connection.prepareStatement(sql);
+                        ps.setString(1, schemaName);
+                        rs = ps.executeQuery();
+                        while (rs.next()) {
+                            // For Oracle: schema.table
+                            String foundTable =
+                                    rs.getString("OWNER") + POINT + rs.getString("TABLE_NAME");
+                            schemaTables.add(foundTable);
+                            LOG.info("Found table in Oracle: {}", foundTable);
+                        }
                     } else if (jdbcDialect
                             .dialectName()
                             .equals(DatabaseTypeEnum.MYSQL.getValue())) {
-                        containsInstances = false;
                         schemaName = tablePath.split("\\.")[0];
                         sql =
-                                "SELECT TABLE_SCHEMA, TABLE_NAME  FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA =?";
+                                "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA =?";
+                        ps = connection.prepareStatement(sql);
+                        ps.setString(1, schemaName);
+                        rs = ps.executeQuery();
+                        while (rs.next()) {
+                            // For MySQL: database.table
+                            String foundTable =
+                                    rs.getString("TABLE_SCHEMA")
+                                            + POINT
+                                            + rs.getString("TABLE_NAME");
+                            schemaTables.add(foundTable);
+                            LOG.info("Found table in MySQL: {}", foundTable);
+                        }
                     } else if (jdbcDialect
                             .dialectName()
                             .equals(DatabaseTypeEnum.SQLSERVER.getValue())) {
-                        schemaName = tablePath.split("\\.")[1];
+                        String[] pathParts = tablePath.split("\\.");
+                        String databaseName = pathParts[0];
+                        schemaName = pathParts[1];
                         sql =
-                                "SELECT TABLE_SCHEMA, TABLE_NAME  FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA =?";
+                                "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES"
+                                        + " WHERE TABLE_SCHEMA =? AND TABLE_CATALOG = DB_NAME()"
+                                        + " AND TABLE_TYPE ='BASE TABLE'";
+                        ps = connection.prepareStatement(sql);
+                        ps.setString(1, schemaName);
+                        rs = ps.executeQuery();
+                        while (rs.next()) {
+                            // For SQLServer: database.schema.table
+                            String foundTable =
+                                    databaseName
+                                            + POINT
+                                            + rs.getString("TABLE_SCHEMA")
+                                            + POINT
+                                            + rs.getString("TABLE_NAME");
+                            schemaTables.add(foundTable);
+                            LOG.info("Found table in SQLServer: {}", foundTable);
+                        }
+                    } else if (jdbcDialect
+                            .dialectName()
+                            .equals(DatabaseTypeEnum.POSTGRESQL.getValue())) {
+                        String[] pathParts = tablePath.split("\\.");
+                        String databaseName = pathParts[0];
+                        schemaName = pathParts[1];
+                        LOG.info(
+                                "PostgreSQL: Processing database: {}, schema: {}",
+                                databaseName,
+                                schemaName);
+                        sql =
+                                "SELECT table_schema, table_name FROM information_schema.tables "
+                                        + "WHERE table_schema = ? AND table_type = 'BASE TABLE' "
+                                        + "AND table_catalog = current_database()";
+                        ps = connection.prepareStatement(sql);
+                        ps.setString(1, schemaName);
+                        rs = ps.executeQuery();
+                        while (rs.next()) {
+                            // For PostgreSQL: database.schema.table
+                            String foundTable =
+                                    databaseName
+                                            + POINT
+                                            + rs.getString("table_schema")
+                                            + POINT
+                                            + rs.getString("table_name");
+                            schemaTables.add(foundTable);
+                            LOG.info("Found table in PostgreSQL: {}", foundTable);
+                        }
                     } else {
                         throw new RuntimeException(
                                 "not support dialect " + jdbcDialect.dialectName());
                     }
-                    ps = connection.prepareStatement(sql);
-                    ps.setString(1, schemaName);
-                    rs = ps.executeQuery();
-                    while (rs.next()) {
-                        schemaTables.add(rs.getString(1) + POINT + rs.getString(2));
-                    }
                     filterCapturedTablesByRegrex(
-                            jdbcSourceTableConfigs,
-                            containsInstances,
-                            tableConfig,
-                            schemaTables,
-                            tablePath);
+                            jdbcSourceTableConfigs, tableConfig, schemaTables, tablePath);
                 } else {
                     jdbcSourceTableConfigs.add(tableConfig);
                 }
@@ -142,32 +200,38 @@ public class JdbcSource
 
     private void filterCapturedTablesByRegrex(
             List<JdbcSourceTableConfig> jdbcSourceTableConfigs,
-            boolean containsInstances,
             JdbcSourceTableConfig tableConfig,
             List<String> schemaTables,
             String tablePath) {
-        Pattern pattern = Pattern.compile(tablePath);
-        String[] tablePathSplits = tablePath.split("\\.");
-        String tableName =
-                containsInstances
-                        ? tablePathSplits[1] + POINT + tablePathSplits[2]
-                        : tablePathSplits[0] + POINT + tablePathSplits[1];
-        if (schemaTables.contains(tableName)) {
-            JdbcSourceTableConfig jdbcSourceTableConfig = new JdbcSourceTableConfig();
-            jdbcSourceTableConfig.setTablePath(tableName);
+        LOG.info("Filtering tables with regex pattern: {}", tablePath);
+
+        // Try exact match first
+        if (schemaTables.contains(tablePath)) {
+            LOG.info("Found exact table match: {}", tablePath);
             jdbcSourceTableConfigs.add(tableConfig);
-        } else {
+            return;
+        }
+
+        // If no exact match, try pattern matching
+        LOG.info(
+                "No exact match found, trying pattern matching against {} tables",
+                schemaTables.size());
+        try {
+            Pattern pattern = Pattern.compile(tablePath);
             for (String table : schemaTables) {
-                Matcher matcher =
-                        pattern.matcher(
-                                containsInstances ? tablePathSplits[0] + POINT + table : table);
-                while (matcher.find()) {
-                    LOG.info("found regrex match table: {}", table);
+                if (pattern.matcher(table).find()) {
+                    LOG.info("Found regex match table: {}", table);
                     JdbcSourceTableConfig jdbcSourceTableConfig = new JdbcSourceTableConfig();
                     jdbcSourceTableConfig.setTablePath(table);
+                    if (tableConfig.getQuery() != null) {
+                        jdbcSourceTableConfig.setQuery(tableConfig.getQuery());
+                    }
                     jdbcSourceTableConfigs.add(jdbcSourceTableConfig);
                 }
             }
+            LOG.info("Total tables matched after filtering: {}", jdbcSourceTableConfigs.size());
+        } catch (Exception e) {
+            LOG.error("Error while matching regex pattern: {}", tablePath, e);
         }
     }
 
