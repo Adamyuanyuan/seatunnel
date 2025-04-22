@@ -87,6 +87,7 @@ public class PostgresTypeConverter implements TypeConverter<BasicTypeDefine> {
     // character varying[] <=> varchar[] <=> _varchar
     public static final String PG_VARCHAR_ARRAY = "_varchar";
     public static final String PG_TEXT = "text";
+    public static final String PG_CI_TEXT = "citext";
     public static final String PG_TEXT_ARRAY = "_text";
     public static final String PG_JSON = "json";
     public static final String PG_JSONB = "jsonb";
@@ -212,6 +213,7 @@ public class PostgresTypeConverter implements TypeConverter<BasicTypeDefine> {
                 }
                 break;
             case PG_TEXT:
+            case PG_CI_TEXT:
                 builder.dataType(BasicType.STRING_TYPE);
                 break;
             case PG_UUID:
