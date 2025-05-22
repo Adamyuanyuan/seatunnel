@@ -120,7 +120,8 @@ public class DorisCreateTableTest {
                                 Collections.emptyMap(),
                                 Collections.emptyList(),
                                 ""),
-                        DorisTypeConverterV1.INSTANCE);
+                        DorisTypeConverterV1.INSTANCE,
+                        false);
         Assertions.assertEquals(
                 result,
                 "CREATE TABLE IF NOT EXISTS `test1`.`test2` (                                                                                                                                                   \n"
@@ -163,7 +164,8 @@ public class DorisCreateTableTest {
                                         createTemplate,
                                         tablePath,
                                         catalogTable,
-                                        DorisTypeConverterV1.INSTANCE));
+                                        DorisTypeConverterV1.INSTANCE,
+                                        false));
         String primaryKeyHolder = SaveModePlaceHolder.ROWTYPE_PRIMARY_KEY.getPlaceHolder();
         SeaTunnelRuntimeException exceptSeaTunnelRuntimeException =
                 CommonError.sqlTemplateHandledError(
@@ -264,7 +266,8 @@ public class DorisCreateTableTest {
                                 Collections.emptyMap(),
                                 Collections.emptyList(),
                                 ""),
-                        DorisTypeConverterV1.INSTANCE);
+                        DorisTypeConverterV1.INSTANCE,
+                        false);
         String expected =
                 "CREATE TABLE IF NOT EXISTS `tpch`.`lineitem` (\n"
                         + "`L_COMMITDATE` DATEV2 NOT NULL ,\n"
@@ -329,7 +332,8 @@ public class DorisCreateTableTest {
                                 Collections.emptyMap(),
                                 Collections.emptyList(),
                                 ""),
-                        DorisTypeConverterV1.INSTANCE);
+                        DorisTypeConverterV1.INSTANCE,
+                        false);
 
         Assertions.assertEquals(
                 result,
@@ -381,7 +385,8 @@ public class DorisCreateTableTest {
                                 Collections.emptyMap(),
                                 Collections.emptyList(),
                                 ""),
-                        DorisTypeConverterV1.INSTANCE);
+                        DorisTypeConverterV1.INSTANCE,
+                        false);
 
         Assertions.assertEquals(
                 "create table 'test1'.'test2'(\n"

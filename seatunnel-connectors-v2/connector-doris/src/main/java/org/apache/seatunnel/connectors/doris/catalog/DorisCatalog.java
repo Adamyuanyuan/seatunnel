@@ -90,6 +90,8 @@ public class DorisCatalog implements Catalog {
 
     private TypeConverter<BasicTypeDefine> typeConverter;
 
+    private boolean caseSensitive = true;
+
     public DorisCatalog(
             String catalogName,
             String frontEndNodes,
@@ -227,10 +229,20 @@ public class DorisCatalog implements Catalog {
 
     @Override
     public boolean tableExists(TablePath tablePath) throws CatalogException {
+        boolean caseSensitive = this.caseSensitive;
+
         try (PreparedStatement ps =
                 conn.prepareStatement(DorisCatalogUtil.TABLES_QUERY_WITH_IDENTIFIER_QUERY)) {
-            ps.setString(1, tablePath.getDatabaseName());
-            ps.setString(2, tablePath.getTableName());
+            String dbName =
+                    caseSensitive
+                            ? tablePath.getDatabaseName()
+                            : tablePath.getDatabaseName().toLowerCase();
+            String tbName =
+                    caseSensitive
+                            ? tablePath.getTableName()
+                            : tablePath.getTableName().toLowerCase();
+            ps.setString(1, dbName);
+            ps.setString(2, tbName);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next();
             }
@@ -413,7 +425,7 @@ public class DorisCatalog implements Catalog {
 
         String stmt =
                 DorisCatalogUtil.getCreateTableStatement(
-                        createTableTemplate, tablePath, table, typeConverter);
+                        createTableTemplate, tablePath, table, typeConverter, caseSensitive);
         try (Statement statement = conn.createStatement()) {
             statement.execute(stmt);
         } catch (SQLException e) {
@@ -512,8 +524,8 @@ public class DorisCatalog implements Catalog {
                             createTableTemplate,
                             tablePath,
                             catalogTable.get(),
-                            // used for test when typeConverter is null
-                            typeConverter != null ? typeConverter : DorisTypeConverterV2.INSTANCE));
+                            typeConverter != null ? typeConverter : DorisTypeConverterV2.INSTANCE,
+                            caseSensitive));
         } else if (actionType == ActionType.DROP_TABLE) {
             return new SQLPreviewResult(DorisCatalogUtil.getDropTableQuery(tablePath, true));
         } else if (actionType == ActionType.TRUNCATE_TABLE) {

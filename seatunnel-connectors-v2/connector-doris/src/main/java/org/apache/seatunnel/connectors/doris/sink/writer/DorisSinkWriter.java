@@ -23,6 +23,8 @@ import org.apache.seatunnel.api.sink.SinkWriter;
 import org.apache.seatunnel.api.sink.SupportMultiTableSinkWriter;
 import org.apache.seatunnel.api.sink.SupportSchemaEvolutionSinkWriter;
 import org.apache.seatunnel.api.table.catalog.CatalogTable;
+import org.apache.seatunnel.api.table.catalog.Column;
+import org.apache.seatunnel.api.table.catalog.PhysicalColumn;
 import org.apache.seatunnel.api.table.catalog.TablePath;
 import org.apache.seatunnel.api.table.catalog.TableSchema;
 import org.apache.seatunnel.api.table.schema.event.SchemaChangeEvent;
@@ -36,7 +38,7 @@ import org.apache.seatunnel.connectors.doris.exception.DorisSchemaChangeExceptio
 import org.apache.seatunnel.connectors.doris.rest.models.RespContent;
 import org.apache.seatunnel.connectors.doris.schema.SchemaChangeManager;
 import org.apache.seatunnel.connectors.doris.serialize.DorisSerializer;
-import org.apache.seatunnel.connectors.doris.serialize.SeaTunnelRowSerializer;
+import org.apache.seatunnel.connectors.doris.serialize.SeaTunnelRowSerializerFactory;
 import org.apache.seatunnel.connectors.doris.sink.LoadStatus;
 import org.apache.seatunnel.connectors.doris.sink.committer.DorisCommitInfo;
 import org.apache.seatunnel.connectors.doris.util.HttpUtil;
@@ -92,10 +94,105 @@ public class DorisSinkWriter
         this.lastCheckpointId = !state.isEmpty() ? state.get(0).getCheckpointId() : 0;
         log.info("restore checkpointId {}", lastCheckpointId);
         log.info("labelPrefix " + dorisSinkConfig.getLabelPrefix());
+
+        // 初始化 SchemaChangeManager
+        this.schemaChangeManager = new SchemaChangeManager(dorisSinkConfig);
+
+        // 处理表路径，支持大小写不敏感
+        TablePath tablePath = catalogTable.getTablePath();
+        TablePath originalTablePath = tablePath; // 保存原始表路径
+
+        // 判断是否设置了 CASE_SENSITIVE 参数
+        boolean caseSensitive = dorisSinkConfig.isCaseSensitive();
+        if (!caseSensitive) {
+            // 如果大小写不敏感，转换为小写表名
+            String database = tablePath.getDatabaseName().toLowerCase();
+            String table = tablePath.getTableName().toLowerCase();
+            String schemaName = tablePath.getSchemaName();
+            if (schemaName != null) {
+                schemaName = schemaName.toLowerCase();
+                tablePath = new TablePath(database, schemaName, table);
+            } else {
+                tablePath = new TablePath(database, null, table);
+            }
+            log.info(
+                    "Case insensitive mode enabled, using lowercase table name: {}",
+                    tablePath.getFullName());
+        }
+
+        try {
+            boolean tableExists = false;
+
+            // 如果大小写不敏感，先检查原始表名是否存在
+            if (!caseSensitive) {
+                tableExists = schemaChangeManager.tableExists(tablePath);
+            } else {
+                // 大小写敏感模式，直接使用原始表名
+                tableExists = schemaChangeManager.tableExists(tablePath);
+            }
+
+            // 如果表不存在，则创建表
+            if (!tableExists) {
+                log.info(
+                        "Table {} does not exist, creating it automatically.",
+                        tablePath.getFullName());
+
+                // 处理表结构，如果大小写不敏感，则将列名转为小写
+                TableSchema tableSchemaToUse = catalogTable.getTableSchema();
+                if (!caseSensitive) {
+                    // 创建新的表结构，将所有列名转为小写
+                    List<Column> lowercaseColumns = new ArrayList<>();
+                    for (Column column : tableSchemaToUse.getColumns()) {
+                        // 创建新的列对象，但使用小写列名
+                        Column lowercaseColumn = null;
+                        if (column.isPhysical()) {
+                            // 如果是物理列，创建 PhysicalColumn
+                            lowercaseColumn =
+                                    PhysicalColumn.of(
+                                            column.getName().toLowerCase(),
+                                            column.getDataType(),
+                                            column.getColumnLength(),
+                                            column.getScale(),
+                                            column.isNullable(),
+                                            column.getDefaultValue(),
+                                            column.getComment(),
+                                            column.getSourceType(),
+                                            column.getOptions());
+                        } else {
+                            // 如果是元数据列，使用 copy 和 rename 方法
+                            lowercaseColumn = column.copy().rename(column.getName().toLowerCase());
+                        }
+                        lowercaseColumns.add(lowercaseColumn);
+                    }
+
+                    // 使用小写列名创建新的表结构
+                    tableSchemaToUse =
+                            TableSchema.builder()
+                                    .columns(lowercaseColumns)
+                                    .primaryKey(tableSchemaToUse.getPrimaryKey())
+                                    .constraintKey(tableSchemaToUse.getConstraintKeys())
+                                    .build();
+
+                    log.info("Created lowercase schema for table {}", tablePath.getFullName());
+                }
+
+                // 创建表，使用 save_mode_create_template 参数或默认方式
+                schemaChangeManager.createTable(tablePath, tableSchemaToUse);
+            }
+            this.sinkTablePath = tablePath;
+        } catch (IOException e) {
+            throw new DorisConnectorException(
+                    DorisConnectorErrorCode.STREAM_LOAD_FAILED,
+                    "Failed to check or create table: "
+                            + tablePath.getFullName()
+                            + ", error: "
+                            + e.getMessage());
+        }
+
         this.labelPrefix =
                 dorisSinkConfig.getLabelPrefix()
                         + "_"
-                        + catalogTable.getTablePath().getFullName().replaceAll("\\.", "_")
+                        + sinkTablePath.getFullName().replaceAll("\\.", "_")
                         + "_"
                         + jobId
                         + "_"
@@ -107,8 +204,7 @@ public class DorisSinkWriter
         this.serializer = createSerializer(dorisSinkConfig, catalogTable.getSeaTunnelRowType());
         this.intervalTime = dorisSinkConfig.getCheckInterval();
         this.tableSchema = catalogTable.getTableSchema();
-        this.sinkTablePath = catalogTable.getTablePath();
-        this.schemaChangeManager = new SchemaChangeManager(dorisSinkConfig);
+
         this.initializeLoad();
     }
 
@@ -266,13 +362,6 @@ public class DorisSinkWriter
 
     private DorisSerializer createSerializer(
             DorisSinkConfig dorisSinkConfig, SeaTunnelRowType seaTunnelRowType) {
-        return new SeaTunnelRowSerializer(
-                dorisSinkConfig
-                        .getStreamLoadProps()
-                        .getProperty(LoadConstants.FORMAT_KEY)
-                        .toLowerCase(),
-                seaTunnelRowType,
-                dorisSinkConfig.getStreamLoadProps().getProperty(LoadConstants.FIELD_DELIMITER_KEY),
-                dorisSinkConfig.getEnableDelete());
+        return SeaTunnelRowSerializerFactory.createSerializer(dorisSinkConfig, seaTunnelRowType);
     }
 }

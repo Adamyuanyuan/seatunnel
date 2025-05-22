@@ -35,12 +35,10 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
-
-import static org.apache.seatunnel.shade.com.google.common.base.Preconditions.checkNotNull;
 
 @Slf4j
 public class DorisCatalogUtil {
@@ -111,24 +109,85 @@ public class DorisCatalogUtil {
             String createTableTemplate,
             TablePath tablePath,
             CatalogTable catalogTable,
-            TypeConverter<BasicTypeDefine> typeConverter) {
+            TypeConverter<BasicTypeDefine> typeConverter,
+            boolean caseSensitive) {
 
         String template = createTableTemplate;
         TableSchema tableSchema = catalogTable.getTableSchema();
 
+        // 处理数据库名和表名的大小写
+        String dbName =
+                caseSensitive
+                        ? tablePath.getDatabaseName()
+                        : tablePath.getDatabaseName().toLowerCase();
+        String tbName =
+                caseSensitive ? tablePath.getTableName() : tablePath.getTableName().toLowerCase();
+
         String primaryKey = "";
-        if (tableSchema.getPrimaryKey() != null) {
+        boolean hasPrimaryKey = false;
+        if (tableSchema.getPrimaryKey() != null
+                && !tableSchema.getPrimaryKey().getColumnNames().isEmpty()) {
+            hasPrimaryKey = true;
             primaryKey =
                     tableSchema.getPrimaryKey().getColumnNames().stream()
-                            .map(r -> "`" + r + "`")
+                            .map(
+                                    r -> {
+                                        String colName = caseSensitive ? r : r.toLowerCase();
+                                        return "`" + colName + "`";
+                                    })
                             .collect(Collectors.joining(","));
         }
+
+        // 如果没有主键，并且模板中包含主键占位符，则使用明细表模板
+        if (!hasPrimaryKey
+                && template.contains(SaveModePlaceHolder.ROWTYPE_PRIMARY_KEY.getPlaceHolder())) {
+            // 获取第一列作为默认键
+            String defaultKeyColumn = "__doris_default_key__";
+            if (!tableSchema.getColumns().isEmpty()) {
+                Column firstColumn = tableSchema.getColumns().get(0);
+                String firstColumnName = firstColumn.getName();
+                if (!caseSensitive) {
+                    firstColumnName = firstColumnName.toLowerCase();
+                }
+                defaultKeyColumn = "`" + firstColumnName + "`";
+            }
+
+            // 使用明细表模板
+            template =
+                    "CREATE TABLE IF NOT EXISTS `${database}`.`${table}` (\n"
+                            + "${rowtype_fields}\n"
+                            + ") ENGINE=OLAP\n"
+                            + " DUPLICATE KEY ("
+                            + defaultKeyColumn
+                            + ")\n"
+                            + "DISTRIBUTED BY HASH ("
+                            + defaultKeyColumn
+                            + ") BUCKETS 10\n"
+                            + " PROPERTIES (\n"
+                            + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                            + "\"in_memory\" = \"false\",\n"
+                            + "\"storage_format\" = \"V2\",\n"
+                            + "\"disable_auto_compaction\" = \"false\"\n"
+                            + ")";
+
+            log.info(
+                    "Using duplicate key template for table without primary key: {}",
+                    tablePath.getFullName());
+        }
+
         String uniqueKey = "";
         if (!tableSchema.getConstraintKeys().isEmpty()) {
             uniqueKey =
                     tableSchema.getConstraintKeys().stream()
                             .flatMap(c -> c.getColumnNames().stream())
-                            .map(r -> "`" + r.getColumnName() + "`")
+                            .map(
+                                    r -> {
+                                        String colName =
+                                                caseSensitive
+                                                        ? r.getColumnName()
+                                                        : r.getColumnName().toLowerCase();
+                                        return "`" + colName + "`";
+                                    })
                             .collect(Collectors.joining(","));
         }
 
@@ -147,20 +206,35 @@ public class DorisCatalogUtil {
                             .get(SaveModePlaceHolder.ROWTYPE_DUPLICATE_KEY.getPlaceHolderKey());
             dupKey =
                     Arrays.stream(dupKeyColumns.split(","))
-                            .map(r -> "`" + r + "`")
+                            .map(
+                                    r -> {
+                                        String colName = caseSensitive ? r : r.toLowerCase();
+                                        return "`" + colName + "`";
+                                    })
                             .collect(Collectors.joining(","));
         }
 
-        SqlTemplate.canHandledByTemplateWithPlaceholder(
-                template,
-                SaveModePlaceHolder.ROWTYPE_PRIMARY_KEY.getPlaceHolder(),
-                primaryKey,
-                tablePath.getFullName(),
-                DorisSinkOptions.SAVE_MODE_CREATE_TEMPLATE.key());
-        template =
-                template.replaceAll(
-                        SaveModePlaceHolder.ROWTYPE_PRIMARY_KEY.getReplacePlaceHolder(),
-                        primaryKey);
+        // 只有当模板中包含主键占位符且有主键时才进行替换检查
+        if (template.contains(SaveModePlaceHolder.ROWTYPE_PRIMARY_KEY.getPlaceHolder())) {
+            if (hasPrimaryKey) {
+                template =
+                        template.replaceAll(
+                                SaveModePlaceHolder.ROWTYPE_PRIMARY_KEY.getReplacePlaceHolder(),
+                                primaryKey);
+            } else {
+                // 如果没有主键，直接移除主键相关占位符
+                template =
+                        template.replaceAll(
+                                SaveModePlaceHolder.ROWTYPE_PRIMARY_KEY.getReplacePlaceHolder()
+                                        + ",",
+                                "");
+                template =
+                        template.replaceAll(
+                                SaveModePlaceHolder.ROWTYPE_PRIMARY_KEY.getReplacePlaceHolder(),
+                                "");
+            }
+        }
+
         SqlTemplate.canHandledByTemplateWithPlaceholder(
                 template,
                 SaveModePlaceHolder.ROWTYPE_UNIQUE_KEY.getPlaceHolder(),
@@ -179,31 +253,52 @@ public class DorisCatalogUtil {
         template =
                 template.replaceAll(
                         SaveModePlaceHolder.ROWTYPE_DUPLICATE_KEY.getReplacePlaceHolder(), dupKey);
+
+        // 处理表注释占位符
+        if (template.contains("COMMENT '${comment}'")) {
+            String tableComment = "";
+            if (catalogTable.getOptions() != null
+                    && catalogTable.getOptions().containsKey("comment")) {
+                tableComment = catalogTable.getOptions().get("comment");
+            }
+            template =
+                    template.replace(
+                            "COMMENT '${comment}'",
+                            StringUtils.isNotBlank(tableComment)
+                                    ? "COMMENT '" + tableComment + "'"
+                                    : "");
+        }
+
         Map<String, CreateTableParser.ColumnInfo> columnInTemplate =
                 CreateTableParser.getColumnList(template);
-        template = mergeColumnInTemplate(columnInTemplate, tableSchema, template, typeConverter);
+        template =
+                mergeColumnInTemplate(
+                        columnInTemplate, tableSchema, template, typeConverter, caseSensitive);
 
         String rowTypeFields =
                 tableSchema.getColumns().stream()
-                        .filter(column -> !columnInTemplate.containsKey(column.getName()))
-                        .map(x -> DorisCatalogUtil.columnToDorisType(x, typeConverter))
+                        .filter(
+                                column -> {
+                                    String columnName =
+                                            caseSensitive
+                                                    ? column.getName()
+                                                    : column.getName().toLowerCase();
+                                    return !columnInTemplate.containsKey(columnName);
+                                })
+                        .map(x -> columnToDorisType(x, typeConverter, caseSensitive))
                         .collect(Collectors.joining(",\n"));
 
         if (template.contains(SaveModePlaceHolder.TABLE_NAME.getPlaceHolder())) {
             // TODO: Remove this compatibility config
             template =
                     template.replaceAll(
-                            SaveModePlaceHolder.TABLE_NAME.getReplacePlaceHolder(),
-                            tablePath.getTableName());
+                            SaveModePlaceHolder.TABLE_NAME.getReplacePlaceHolder(), tbName);
             log.warn(
                     "The variable placeholder `${table_name}` has been marked as deprecated and will be removed soon, please use `${table}`");
         }
 
-        return template.replaceAll(
-                        SaveModePlaceHolder.DATABASE.getReplacePlaceHolder(),
-                        tablePath.getDatabaseName())
-                .replaceAll(
-                        SaveModePlaceHolder.TABLE.getReplacePlaceHolder(), tablePath.getTableName())
+        return template.replaceAll(SaveModePlaceHolder.DATABASE.getReplacePlaceHolder(), dbName)
+                .replaceAll(SaveModePlaceHolder.TABLE.getReplacePlaceHolder(), tbName)
                 .replaceAll(
                         SaveModePlaceHolder.ROWTYPE_FIELDS.getReplacePlaceHolder(), rowTypeFields);
     }
@@ -212,11 +307,14 @@ public class DorisCatalogUtil {
             Map<String, CreateTableParser.ColumnInfo> columnInTemplate,
             TableSchema tableSchema,
             String template,
-            TypeConverter<BasicTypeDefine> typeConverter) {
+            TypeConverter<BasicTypeDefine> typeConverter,
+            boolean caseSensitive) {
         int offset = 0;
-        Map<String, Column> columnMap =
-                tableSchema.getColumns().stream()
-                        .collect(Collectors.toMap(Column::getName, Function.identity()));
+        Map<String, Column> columnMap = new HashMap<>();
+        for (Column column : tableSchema.getColumns()) {
+            String key = caseSensitive ? column.getName() : column.getName().toLowerCase();
+            columnMap.put(key, column);
+        }
         List<CreateTableParser.ColumnInfo> columnInfosInSeq =
                 columnInTemplate.values().stream()
                         .sorted(
@@ -228,7 +326,7 @@ public class DorisCatalogUtil {
             if (StringUtils.isEmpty(columnInfo.getInfo())) {
                 if (columnMap.containsKey(col)) {
                     Column column = columnMap.get(col);
-                    String newCol = columnToDorisType(column, typeConverter);
+                    String newCol = columnToDorisType(column, typeConverter, caseSensitive);
                     String prefix = template.substring(0, columnInfo.getStartIndex() + offset);
                     String suffix = template.substring(offset + columnInfo.getEndIndex());
                     if (prefix.endsWith("`")) {
@@ -250,11 +348,14 @@ public class DorisCatalogUtil {
     }
 
     private static String columnToDorisType(
-            Column column, TypeConverter<BasicTypeDefine> typeConverter) {
-        checkNotNull(column, "The column is required.");
+            Column column, TypeConverter<BasicTypeDefine> typeConverter, boolean caseSensitive) {
+        if (column == null) {
+            throw new IllegalArgumentException("The column is required.");
+        }
+        String columnName = caseSensitive ? column.getName() : column.getName().toLowerCase();
         return String.format(
                 "`%s` %s %s %s",
-                column.getName(),
+                columnName,
                 typeConverter.reconvert(column).getColumnType(),
                 column.isNullable() ? "NULL" : "NOT NULL",
                 StringUtils.isEmpty(column.getComment())

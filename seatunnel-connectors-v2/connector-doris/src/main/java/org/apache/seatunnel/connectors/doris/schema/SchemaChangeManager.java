@@ -55,6 +55,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -68,6 +69,8 @@ public class SchemaChangeManager implements Serializable {
     private static final String CHECK_COLUMN_EXISTS =
             "SELECT COLUMN_NAME FROM information_schema.`COLUMNS` WHERE TABLE_SCHEMA = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'";
     private static final String SCHEMA_CHANGE_API = "http://%s/api/query/default_cluster/%s";
+    private static final String CHECK_TABLE_EXISTS =
+            "SELECT TABLE_NAME FROM information_schema.`TABLES` WHERE TABLE_SCHEMA = '%s' AND TABLE_NAME = '%s'";
     private ObjectMapper objectMapper = new ObjectMapper();
     private DorisSinkConfig dorisSinkConfig;
     private String charsetEncoding = "UTF-8";
@@ -306,6 +309,11 @@ public class SchemaChangeManager implements Serializable {
      * @return
      */
     public boolean columnExists(TablePath tablePath, String column) throws IOException {
+        // 处理列名大小写
+        if (dorisSinkConfig != null && !dorisSinkConfig.isCaseSensitive()) {
+            column = column.toLowerCase();
+        }
+
         String selectColumnSQL =
                 buildColumnExistsQuery(
                         tablePath.getDatabaseName(), tablePath.getTableName(), column);
@@ -314,6 +322,246 @@ public class SchemaChangeManager implements Serializable {
 
     public static String buildColumnExistsQuery(String database, String table, String column) {
         return String.format(CHECK_COLUMN_EXISTS, database, table, column);
+    }
+
+    /**
+     * Check if the table exists in the database
+     *
+     * @param tablePath 表路径
+     * @return 表是否存在
+     */
+    public boolean tableExists(TablePath tablePath) throws IOException {
+        String database = tablePath.getDatabaseName();
+        String table = tablePath.getTableName();
+
+        String checkTableSQL = String.format(CHECK_TABLE_EXISTS, database, table);
+        return sendCheckTableHttpPostRequest(checkTableSQL, database);
+    }
+
+    private boolean sendCheckTableHttpPostRequest(String sql, String database)
+            throws IOException, IllegalArgumentException {
+        HttpPost httpPost = buildHttpPost(sql, database);
+        try (CloseableHttpClient httpclient = HttpClients.createDefault()) {
+            CloseableHttpResponse response = httpclient.execute(httpPost);
+            final int statusCode = response.getStatusLine().getStatusCode();
+            if (statusCode == 200 && response.getEntity() != null) {
+                String loadResult = EntityUtils.toString(response.getEntity());
+                log.info(
+                        "http post response success. statusCode: {}, loadResult: {}",
+                        statusCode,
+                        loadResult);
+                JsonNode responseNode = objectMapper.readTree(loadResult);
+                String code = responseNode.get("code").asText("-1");
+                if (code.equals("0")) {
+                    JsonNode data = responseNode.get("data").get("data");
+                    if (!data.isEmpty()) {
+                        return true;
+                    }
+                }
+            } else {
+                log.warn("http post response failed. statusCode: {}", statusCode);
+            }
+        } catch (Exception e) {
+            log.error(
+                    "send http post request error {}, default return false, SQL:{}",
+                    e.getMessage(),
+                    sql);
+            log.error(e.getMessage(), e);
+        }
+        return false;
+    }
+
+    /**
+     * 创建表
+     *
+     * @param tablePath 表路径
+     * @param tableSchema 表结构
+     */
+    public void createTable(
+            TablePath tablePath, org.apache.seatunnel.api.table.catalog.TableSchema tableSchema)
+            throws IOException {
+        // 定义默认的主键表模板
+        String defaultTemplate =
+                "CREATE TABLE IF NOT EXISTS `${database}`.`${table}` (\n"
+                        + "${rowtype_primary_key},\n"
+                        + "${rowtype_fields}\n"
+                        + ") ENGINE=OLAP\n"
+                        + " UNIQUE KEY (${rowtype_primary_key})\n"
+                        + "DISTRIBUTED BY HASH (${rowtype_primary_key})\n"
+                        + " PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\",\n"
+                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + ")";
+
+        String createTableTemplate;
+
+        log.info(
+                "Create table template from config: {}",
+                dorisSinkConfig.getCreateTableTemplate() != null
+                        ? dorisSinkConfig.getCreateTableTemplate()
+                        : "null");
+        // 判断是否设置了自定义模板
+        if (dorisSinkConfig.getCreateTableTemplate() != null
+                && !dorisSinkConfig.getCreateTableTemplate().isEmpty()
+                && !dorisSinkConfig.getCreateTableTemplate().equals(defaultTemplate)) {
+            createTableTemplate = dorisSinkConfig.getCreateTableTemplate();
+            log.info("Using custom table template from config");
+        }
+        // 判断是否有主键
+        else if (tableSchema.getPrimaryKey() != null
+                && !tableSchema.getPrimaryKey().getColumnNames().isEmpty()) {
+            List<String> primaryKeys =
+                    new ArrayList<>(tableSchema.getPrimaryKey().getColumnNames());
+            log.info("Using primary key from table schema: {}", String.join(", ", primaryKeys));
+            // 有主键，使用默认主键表模板
+            createTableTemplate = defaultTemplate;
+        }
+        // 无主键，使用明细表模板
+        else {
+            // 确定默认键列
+            String defaultKeyColumn = "__doris_default_key__";
+            if (!tableSchema.getColumns().isEmpty()) {
+                Column firstColumn = tableSchema.getColumns().get(0);
+                String firstColumnName = firstColumn.getName();
+                if (dorisSinkConfig != null && !dorisSinkConfig.isCaseSensitive()) {
+                    firstColumnName = firstColumnName.toLowerCase();
+                }
+                defaultKeyColumn = quoteIdentifier(firstColumnName);
+            }
+
+            log.info("No primary key found, using DUPLICATE KEY with column: {}", defaultKeyColumn);
+
+            // 无主键，使用明细表模板
+            createTableTemplate =
+                    "CREATE TABLE IF NOT EXISTS `${database}`.`${table}` (\n"
+                            + "${rowtype_fields}\n"
+                            + ") ENGINE=OLAP\n"
+                            + " DUPLICATE KEY ("
+                            + defaultKeyColumn
+                            + ")\n"
+                            + "DISTRIBUTED BY HASH ("
+                            + defaultKeyColumn
+                            + ") BUCKETS 10\n"
+                            + " PROPERTIES (\n"
+                            + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                            + "\"in_memory\" = \"false\",\n"
+                            + "\"storage_format\" = \"V2\",\n"
+                            + "\"disable_auto_compaction\" = \"false\"\n"
+                            + ")";
+        }
+
+        log.info("Creating table with template: {}", createTableTemplate);
+
+        // 构建列定义
+        StringBuilder primaryKeyColumns = new StringBuilder();
+        StringBuilder normalColumns = new StringBuilder();
+        StringBuilder primaryKeyNames = new StringBuilder();
+
+        // 获取主键列
+        List<String> primaryKeys = new ArrayList<>();
+        if (tableSchema.getPrimaryKey() != null
+                && !tableSchema.getPrimaryKey().getColumnNames().isEmpty()) {
+            primaryKeys.addAll(tableSchema.getPrimaryKey().getColumnNames());
+        }
+
+        // 处理所有列
+        for (Column column : tableSchema.getColumns()) {
+            BasicTypeDefine typeDefine = DorisTypeConverterV2.INSTANCE.reconvert(column);
+
+            // 处理列名大小写
+            String columnName = column.getName();
+            if (dorisSinkConfig != null && !dorisSinkConfig.isCaseSensitive()) {
+                columnName = columnName.toLowerCase();
+            }
+
+            // 构建列定义
+            StringBuilder columnDef = new StringBuilder();
+            columnDef
+                    .append(quoteIdentifier(columnName))
+                    .append(" ")
+                    .append(typeDefine.getColumnType());
+
+            if (!column.isNullable()) {
+                columnDef.append(" NOT NULL");
+            }
+
+            if (column.getDefaultValue() != null && isSupportDefaultValue(column)) {
+                columnDef.append(" DEFAULT ").append(quoteDefaultValue(column.getDefaultValue()));
+            }
+
+            if (column.getComment() != null) {
+                columnDef.append(" COMMENT '").append(column.getComment()).append("'");
+            }
+
+            // 判断是否为主键列
+            boolean isPrimaryKey =
+                    primaryKeys.stream()
+                            .anyMatch(
+                                    pk ->
+                                            dorisSinkConfig != null
+                                                            && !dorisSinkConfig.isCaseSensitive()
+                                                    ? column.getName().equalsIgnoreCase(pk)
+                                                    : column.getName().equals(pk));
+
+            // 添加到相应的列集合
+            if (isPrimaryKey) {
+                if (primaryKeyColumns.length() > 0) primaryKeyColumns.append(", ");
+                primaryKeyColumns.append(columnDef);
+
+                if (primaryKeyNames.length() > 0) primaryKeyNames.append(", ");
+                primaryKeyNames.append(quoteIdentifier(columnName));
+            } else {
+                if (normalColumns.length() > 0) normalColumns.append(", ");
+                normalColumns.append(columnDef);
+            }
+        }
+
+        // 替换模板中的占位符
+        String createTableSql = createTableTemplate;
+        createTableSql =
+                createTableSql
+                        .replace("${database}", tablePath.getDatabaseName())
+                        .replace("${table}", tablePath.getTableName())
+                        .replace("${table_name}", tablePath.getTableName());
+
+        // 替换列定义相关占位符
+        boolean hasPrimaryKey = primaryKeyColumns.length() > 0;
+
+        if (hasPrimaryKey) {
+            // 替换主键列定义（在列定义部分）
+            createTableSql =
+                    createTableSql.replace(
+                            "${rowtype_primary_key},", primaryKeyColumns.toString() + ",");
+
+            // 替换主键列名（用于 UNIQUE KEY 和 DISTRIBUTED BY HASH）
+            createTableSql =
+                    createTableSql.replace(
+                            "UNIQUE KEY (${rowtype_primary_key})",
+                            "UNIQUE KEY (" + primaryKeyNames.toString() + ")");
+            createTableSql =
+                    createTableSql.replace(
+                            "DISTRIBUTED BY HASH (${rowtype_primary_key})",
+                            "DISTRIBUTED BY HASH (" + primaryKeyNames.toString() + ")");
+        } else {
+            // 无主键情况下，删除主键相关占位符
+            createTableSql = createTableSql.replace("${rowtype_primary_key},", "");
+        }
+
+        // 替换普通列定义
+        createTableSql = createTableSql.replace("${rowtype_fields}", normalColumns.toString());
+
+        log.info("Execute SQL: {}", createTableSql);
+
+        // 执行创建表SQL
+        if (!execute(createTableSql, tablePath.getDatabaseName())) {
+            throw new DorisSchemaChangeException(
+                    DorisConnectorErrorCode.SCHEMA_CHANGE_FAILED,
+                    "Failed to create table: " + tablePath.getFullName());
+        }
+
+        log.info("Table {} created successfully", tablePath.getFullName());
     }
 
     public static String quoteIdentifier(String identifier) {
