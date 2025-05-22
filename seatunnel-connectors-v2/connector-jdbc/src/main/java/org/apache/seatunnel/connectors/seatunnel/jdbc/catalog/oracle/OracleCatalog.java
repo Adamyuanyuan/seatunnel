@@ -73,6 +73,7 @@ public class OracleCatalog extends AbstractJdbcCatalog {
                     + "    cols.column_id \n";
 
     private boolean decimalTypeNarrowing;
+    private boolean handleBlobAsString;
 
     public OracleCatalog(
             String catalogName,
@@ -96,8 +97,20 @@ public class OracleCatalog extends AbstractJdbcCatalog {
             JdbcUrlUtil.UrlInfo urlInfo,
             String defaultSchema,
             boolean decimalTypeNarrowing) {
+        this(catalogName, username, pwd, urlInfo, defaultSchema, decimalTypeNarrowing, false);
+    }
+
+    public OracleCatalog(
+            String catalogName,
+            String username,
+            String pwd,
+            JdbcUrlUtil.UrlInfo urlInfo,
+            String defaultSchema,
+            boolean decimalTypeNarrowing,
+            boolean handleBlobAsString) {
         super(catalogName, username, pwd, urlInfo, defaultSchema);
         this.decimalTypeNarrowing = decimalTypeNarrowing;
+        this.handleBlobAsString = handleBlobAsString;
     }
 
     @Override
@@ -182,7 +195,8 @@ public class OracleCatalog extends AbstractJdbcCatalog {
                         .defaultValue(defaultValue)
                         .comment(columnComment)
                         .build();
-        return new OracleTypeConverter(decimalTypeNarrowing).convert(typeDefine);
+        return new OracleTypeConverter(decimalTypeNarrowing, handleBlobAsString)
+                .convert(typeDefine);
     }
 
     @Override
@@ -204,7 +218,9 @@ public class OracleCatalog extends AbstractJdbcCatalog {
     public CatalogTable getTable(String sqlQuery) throws SQLException {
         Connection defaultConnection = getConnection(defaultUrl);
         return CatalogUtils.getCatalogTable(
-                defaultConnection, sqlQuery, new OracleTypeMapper(decimalTypeNarrowing));
+                defaultConnection,
+                sqlQuery,
+                new OracleTypeMapper(decimalTypeNarrowing, handleBlobAsString));
     }
 
     @Override
