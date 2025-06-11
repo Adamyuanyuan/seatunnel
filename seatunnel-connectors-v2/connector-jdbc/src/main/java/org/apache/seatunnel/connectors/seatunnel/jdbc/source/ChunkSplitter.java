@@ -71,6 +71,11 @@ public abstract class ChunkSplitter implements AutoCloseable, Serializable {
     }
 
     public static ChunkSplitter create(JdbcSourceConfig config) {
+        if (config.isSampledBalancedSharding()) {
+            log.info("Switch to sampled balanced chunk splitter");
+            return new SampledBalancedChunkSplitter(config);
+        }
+
         log.info(
                 "Switch to {} chunk splitter", config.isUseDynamicSplitter() ? "dynamic" : "fixed");
         return config.isUseDynamicSplitter()

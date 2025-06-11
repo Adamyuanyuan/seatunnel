@@ -814,4 +814,17 @@ public interface JdbcDialect extends Serializable {
     default String quotesDefaultValue(Object defaultValue) {
         return "'" + defaultValue + "'";
     }
+
+    /**
+     * 采样均衡分片：计算分片边界
+     */
+    default Object[] sampleAndCalculateBoundaries(
+            Connection connection,
+            JdbcSourceTable table,
+            String splitColumnName,
+            double samplingPercentage,
+            int partitionNum) throws SQLException {
+        throw new UnsupportedOperationException(
+                String.format("采样均衡分片功能暂不支持数据库: %s", dialectName()));
+    }
 }

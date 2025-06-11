@@ -105,4 +105,23 @@ public interface JdbcSourceOptions {
                     .booleanType()
                     .defaultValue(false)
                     .withDescription("Skip the analysis of table count");
+
+    Option<Boolean> SPLIT_SAMPLED_BALANCED_SHARDING =
+            Options.key("split.sampled_balanced_sharding")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Enable sampled balanced sharding strategy. " +
+                                    "This strategy uses data sampling and quantile statistics to create balanced " +
+                                    "partitions based on actual data distribution rather than simple value ranges. " +
+                                    "It samples a small percentage of data, uses NTILE window function to determine " +
+                                    "partition boundaries ensuring each partition processes similar amount of records. " +
+                                    "Particularly effective for handling severely skewed data distributions where " +
+                                    "traditional partitioning methods would result in unbalanced workloads.");
+
+    Option<Double> SPLIT_SAMPLING_PERCENTAGE =
+            Options.key("split.sampling-percentage")
+                    .doubleType()
+                    .defaultValue(0.1)
+                    .withDescription("数据采样百分比，用于采样均衡分片算法");
 }

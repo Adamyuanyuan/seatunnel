@@ -535,4 +535,71 @@ public class OracleDialect implements JdbcDialect {
             return rs.getString("NULLABLE").equals("Y");
         }
     }
+
+    @Override
+    public Object[] sampleAndCalculateBoundaries(
+            Connection connection,
+            JdbcSourceTable table,
+            String splitColumnName,
+            double samplingPercentage,
+            int partitionNum) throws SQLException {
+
+        String quotedColumn = quoteIdentifier(splitColumnName);
+        String tableRef = buildTableReference(table);
+
+        // Oracle特有的采样语法
+        String sql = String.format(
+                "WITH sampled_data AS (" +
+                        "    SELECT /*+ PARALLEL(4) */ %s " +
+                        "    FROM %s SAMPLE(%f)" +
+                        "), " +
+                        "bucket_stats AS (" +
+                        "    SELECT " +
+                        "        NTILE(%d) OVER(ORDER BY %s) AS bucket_no, " +
+                        "        %s " +
+                        "    FROM sampled_data " +
+                        "    WHERE %s IS NOT NULL" +
+                        ") " +
+                        "SELECT MAX(%s) AS boundary " +
+                        "FROM bucket_stats " +
+                        "WHERE bucket_no < %d " +
+                        "GROUP BY bucket_no " +
+                        "ORDER BY bucket_no",
+                quotedColumn, tableRef, samplingPercentage,
+                partitionNum, quotedColumn, quotedColumn, quotedColumn,
+                quotedColumn, partitionNum
+        );
+
+        return executeSamplingQuery(connection, sql);
+    }
+
+    private String buildTableReference(JdbcSourceTable table) {
+        if (StringUtils.isNotBlank(table.getQuery())) {
+            return String.format("(%s)", table.getQuery());
+        } else {
+            return tableIdentifier(table.getTablePath());
+        }
+    }
+
+    private Object[] executeSamplingQuery(Connection connection, String sql) throws SQLException {
+        List<Object> boundaries = new ArrayList<>();
+
+        try (Statement stmt = connection.createStatement()) {
+            stmt.setFetchSize(1000);
+
+            try (ResultSet rs = stmt.executeQuery(sql)) {
+                while (rs.next()) {
+                    Object boundary = rs.getObject("boundary");
+                    if (boundary != null) {
+                        boundaries.add(boundary);
+                    }
+                }
+            }
+        }
+
+        log.info("Oracle sampled balanced sharding completed, found {} boundaries", boundaries.size());
+        return boundaries.toArray();
+    }
+
+
 }

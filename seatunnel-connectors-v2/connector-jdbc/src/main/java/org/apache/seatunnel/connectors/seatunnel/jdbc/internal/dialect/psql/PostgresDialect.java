@@ -456,4 +456,72 @@ public class PostgresDialect implements JdbcDialect {
         }
         return columnName;
     }
+
+    @Override
+    public Object[] sampleAndCalculateBoundaries(
+            Connection connection,
+            JdbcSourceTable table,
+            String splitColumnName,
+            double samplingPercentage,
+            int partitionNum) throws SQLException {
+
+        String quotedColumn = quoteIdentifier(splitColumnName);
+        String tableRef = tableIdentifier(table.getTablePath());
+
+        // PostgreSQL使用TABLESAMPLE
+        String sql = String.format(
+                "WITH sampled_data AS (" +
+                        "    SELECT %s " +
+                        "    FROM %s TABLESAMPLE SYSTEM(%f)" +
+                        "), " +
+                        "bucket_stats AS (" +
+                        "    SELECT " +
+                        "        NTILE(%d) OVER(ORDER BY %s) AS bucket_no, " +
+                        "        %s " +
+                        "    FROM sampled_data " +
+                        "    WHERE %s IS NOT NULL" +
+                        ") " +
+                        "SELECT MAX(%s) AS boundary " +
+                        "FROM bucket_stats " +
+                        "WHERE bucket_no < %d " +
+                        "GROUP BY bucket_no " +
+                        "ORDER BY bucket_no",
+                quotedColumn, tableRef, samplingPercentage,
+                partitionNum, quotedColumn, quotedColumn, quotedColumn,
+                quotedColumn, partitionNum
+        );
+
+        return executeSamplingQuery(connection, sql);
+    }
+
+
+    /**
+     * 执行PostgreSQL采样查询并返回边界值数组
+     */
+    private Object[] executeSamplingQuery(Connection connection, String sql) throws SQLException {
+        List<Object> boundaries = new ArrayList<>();
+
+        try (Statement stmt = connection.createStatement()) {
+            // PostgreSQL特有的优化设置
+            if (stmt.getFetchSize() == 0) {
+                stmt.setFetchSize(DEFAULT_POSTGRES_FETCH_SIZE);
+            }
+
+            log.info("Executing PostgreSQL sampled balanced sharding query");
+            log.debug("SQL: {}", sql);
+
+            try (ResultSet rs = stmt.executeQuery(sql)) {
+                while (rs.next()) {
+                    Object boundary = rs.getObject("boundary");
+                    if (boundary != null) {
+                        boundaries.add(boundary);
+                        log.debug("Found boundary: {}", boundary);
+                    }
+                }
+            }
+        }
+
+        log.info("PostgreSQL sampled balanced sharding completed, found {} boundaries", boundaries.size());
+        return boundaries.toArray();
+    }
 }
