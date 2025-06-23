@@ -99,10 +99,14 @@ public class SampledBalancedChunkSplitter extends ChunkSplitter {
             JdbcSourceTable table, SeaTunnelRowType splitKey) throws Exception {
 
         String splitKeyName = splitKey.getFieldNames()[0];
-        SeaTunnelDataType splitKeyType = splitKey.getFieldType(0);
+        SeaTunnelDataType<?> splitKeyType = splitKey.getFieldType(0);
 
         log.info("Using sampled balanced sharding strategy for table {} with split column: {}",
                 table.getTablePath(), splitKeyName);
+        log.info("config: {}", config);
+
+        // 内部计算时使用 bucket_number - 1 作为桶数
+//        int actualBuckets = config.getBucketNumber() - 1;
 
         // 1. Execute data sampling and quantile calculation
         Object[] boundaries = jdbcDialect.sampleAndCalculateBoundaries(
@@ -110,7 +114,7 @@ public class SampledBalancedChunkSplitter extends ChunkSplitter {
                 table,
                 splitKeyName,
                 config.getSamplingPercentage(),
-                table.getPartitionNumber()
+                config.getBucketNumber()
         );
 
         if (boundaries.length == 0) {
@@ -140,7 +144,7 @@ public class SampledBalancedChunkSplitter extends ChunkSplitter {
 
             splits.add(split);
 
-            log.debug("Created split {}: {} < {} <= {}",
+            log.info("Created split {}: {} < {} <= {}",
                     i, previousBoundary, splitKeyName, currentBoundary);
 
             previousBoundary = currentBoundary;

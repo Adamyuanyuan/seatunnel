@@ -542,7 +542,7 @@ public class OracleDialect implements JdbcDialect {
             JdbcSourceTable table,
             String splitColumnName,
             double samplingPercentage,
-            int partitionNum) throws SQLException {
+            int bucketNumber) throws SQLException {
 
         String quotedColumn = quoteIdentifier(splitColumnName);
         String tableRef = buildTableReference(table);
@@ -566,8 +566,8 @@ public class OracleDialect implements JdbcDialect {
                         "GROUP BY bucket_no " +
                         "ORDER BY bucket_no",
                 quotedColumn, tableRef, samplingPercentage,
-                partitionNum, quotedColumn, quotedColumn, quotedColumn,
-                quotedColumn, partitionNum
+                bucketNumber, quotedColumn, quotedColumn, quotedColumn,
+                quotedColumn, bucketNumber
         );
 
         return executeSamplingQuery(connection, sql);
@@ -586,6 +586,8 @@ public class OracleDialect implements JdbcDialect {
 
         try (Statement stmt = connection.createStatement()) {
             stmt.setFetchSize(1000);
+
+            log.info("Executing Oracle sampled balanced sharding query: {}", sql);
 
             try (ResultSet rs = stmt.executeQuery(sql)) {
                 while (rs.next()) {

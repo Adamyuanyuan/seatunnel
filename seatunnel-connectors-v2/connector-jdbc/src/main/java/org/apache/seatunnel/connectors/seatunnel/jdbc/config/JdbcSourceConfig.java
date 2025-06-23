@@ -46,6 +46,7 @@ public class JdbcSourceConfig implements Serializable {
     private boolean handleBlobAsString;
     private boolean isSampledBalancedSharding;
     private double samplingPercentage;
+    private int bucketNumber;
 
     public static JdbcSourceConfig of(ReadonlyConfig config) {
         JdbcSourceConfig.Builder builder = JdbcSourceConfig.builder();
@@ -72,6 +73,7 @@ public class JdbcSourceConfig implements Serializable {
         builder.handleBlobAsString(config.get(JdbcOptions.HANDLE_BLOB_AS_STRING));
         builder.isSampledBalancedSharding(config.get(JdbcSourceOptions.SPLIT_SAMPLED_BALANCED_SHARDING));
         builder.samplingPercentage(config.get(JdbcSourceOptions.SPLIT_SAMPLING_PERCENTAGE));
+        builder.bucketNumber(config.get(JdbcSourceOptions.BUCKET_NUMBER));
 
         config.getOptional(JdbcSourceOptions.WHERE_CONDITION)
                 .ifPresent(

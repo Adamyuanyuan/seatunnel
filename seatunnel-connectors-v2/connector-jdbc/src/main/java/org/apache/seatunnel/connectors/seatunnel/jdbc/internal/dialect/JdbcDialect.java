@@ -823,7 +823,7 @@ public interface JdbcDialect extends Serializable {
             JdbcSourceTable table,
             String splitColumnName,
             double samplingPercentage,
-            int partitionNum) throws SQLException {
+            int bucketNumber) throws SQLException {
         throw new UnsupportedOperationException(
                 String.format("采样均衡分片功能暂不支持数据库: %s", dialectName()));
     }

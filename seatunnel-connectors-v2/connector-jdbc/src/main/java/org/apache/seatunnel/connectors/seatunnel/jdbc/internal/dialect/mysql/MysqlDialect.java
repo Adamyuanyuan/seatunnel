@@ -54,7 +54,8 @@ public class MysqlDialect implements JdbcDialect {
 
     public String fieldIde = FieldIdeEnum.ORIGINAL.getValue();
 
-    public MysqlDialect() {}
+    public MysqlDialect() {
+    }
 
     public MysqlDialect(String fieldIde) {
         this.fieldIde = fieldIde;
@@ -164,8 +165,8 @@ public class MysqlDialect implements JdbcDialect {
         }
 
         try (Statement stmt =
-                connection.createStatement(
-                        ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+                     connection.createStatement(
+                             ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
             stmt.setFetchSize(Integer.MIN_VALUE);
             try (ResultSet rs = stmt.executeQuery(sampleQuery)) {
                 int count = 0;
@@ -200,10 +201,10 @@ public class MysqlDialect implements JdbcDialect {
         boolean useTableStats =
                 StringUtils.isBlank(table.getQuery())
                         || (!table.getQuery().toLowerCase().contains("where")
-                                && table.getTablePath() != null
-                                && !TablePath.DEFAULT
-                                        .getFullName()
-                                        .equals(table.getTablePath().getFullName()));
+                        && table.getTablePath() != null
+                        && !TablePath.DEFAULT
+                        .getFullName()
+                        .equals(table.getTablePath().getFullName()));
 
         if (useTableStats) {
             // The statement used to get approximate row count which is less
@@ -272,7 +273,7 @@ public class MysqlDialect implements JdbcDialect {
             JdbcSourceTable table,
             String splitColumnName,
             double samplingPercentage,
-            int partitionNum) throws SQLException {
+            int bucketNumber) throws SQLException {
 
         String quotedColumn = quoteIdentifier(splitColumnName);
         String tableRef = tableIdentifier(table.getTablePath());
@@ -296,9 +297,9 @@ public class MysqlDialect implements JdbcDialect {
                         "WHERE bucket_no < %d " +
                         "GROUP BY bucket_no " +
                         "ORDER BY bucket_no",
-                quotedColumn, tableRef, samplingPercentage / 100.0,
-                partitionNum, quotedColumn, quotedColumn, quotedColumn,
-                quotedColumn, partitionNum
+                quotedColumn, tableRef, samplingPercentage,
+                bucketNumber, quotedColumn, quotedColumn, quotedColumn,
+                quotedColumn, bucketNumber
         );
 
         return executeSamplingQuery(connection, sql);
@@ -309,6 +310,8 @@ public class MysqlDialect implements JdbcDialect {
      */
     private Object[] executeSamplingQuery(Connection connection, String sql) throws SQLException {
         List<Object> boundaries = new ArrayList<>();
+
+        long startTime = System.currentTimeMillis(); // 记录开始时间
 
         try (Statement stmt = connection.createStatement()) {
             // MySQL特有的优化设置
@@ -326,7 +329,11 @@ public class MysqlDialect implements JdbcDialect {
             }
         }
 
-        log.info("MySQL sampled balanced sharding completed, found {} boundaries", boundaries.size());
+        long endTime = System.currentTimeMillis(); // 记录结束时间
+        long duration = endTime - startTime; // 计算执行时间
+
+        log.info("MySQL sampled balanced sharding completed, found {} boundaries, boundaries: {}, took {} ms, ", boundaries.size(), boundaries, duration);
         return boundaries.toArray();
     }
+
 }

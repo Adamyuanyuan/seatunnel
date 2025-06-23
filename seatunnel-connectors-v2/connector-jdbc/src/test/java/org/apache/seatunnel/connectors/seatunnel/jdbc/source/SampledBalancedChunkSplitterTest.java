@@ -34,11 +34,8 @@ import java.lang.reflect.Field;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -510,5 +507,65 @@ public class SampledBalancedChunkSplitterTest {
         assertEquals(1, splitList.get(1).getSplitStart());
         assertEquals(2, splitList.get(1).getSplitEnd());
         assertEquals(1000000, splitList.get(3).getSplitStart());
+    }
+
+    /**
+     * 完整的采样参数与结果验证测试
+     * @throws Exception
+     */
+    @Test
+    void testCreateSplits_samplingParametersAndResultValidation() throws Exception {
+        // 1. 设置采样配置
+        when(mockJdbcSourceConfig.getSamplingPercentage()).thenReturn(0.001);
+
+        // 2. 设置预期的采样结果
+        Object[] expectedBoundaries = new Object[]{100, 200, 300};
+        when(mockJdbcDialect.sampleAndCalculateBoundaries(
+                any(Connection.class), any(JdbcSourceTable.class),
+                anyString(), anyDouble(), anyInt()))
+                .thenReturn(expectedBoundaries);
+
+        // 3. 执行测试
+        Collection<JdbcSourceSplit> actualSplits = splitter.createSplits(
+                basicJdbcSourceTable, getSplitKeyType());
+
+        // 4. 验证方法调用（过程验证）
+        verify(mockJdbcDialect, times(1)).sampleAndCalculateBoundaries(
+                eq(mockConnection),
+                eq(basicJdbcSourceTable),
+                eq(SPLIT_KEY_NAME),
+                eq(0.001),  // 采样比例
+                eq(DEFAULT_PARTITION_NUM));  // 分区数量
+
+        // 🔥 5. 验证返回结果（结果验证）
+        assertNotNull(actualSplits);
+        assertEquals(4, actualSplits.size()); // 3个边界 = 4个分片
+
+        List<JdbcSourceSplit> splitList = new ArrayList<>(actualSplits);
+
+        // 验证第一个分片：[null, 100]
+        assertEquals(null, splitList.get(0).getSplitStart());
+        assertEquals(100, splitList.get(0).getSplitEnd());
+        assertEquals(SPLIT_KEY_NAME, splitList.get(0).getSplitKeyName());
+        assertEquals(SPLIT_KEY_TYPE, splitList.get(0).getSplitKeyType());
+        assertTrue(splitList.get(0).getSplitId().contains(BASIC_TABLE_PATH.toString()));
+
+        // 验证第二个分片：[100, 200]
+        assertEquals(100, splitList.get(1).getSplitStart());
+        assertEquals(200, splitList.get(1).getSplitEnd());
+
+        // 验证第三个分片：[200, 300]
+        assertEquals(200, splitList.get(2).getSplitStart());
+        assertEquals(300, splitList.get(2).getSplitEnd());
+
+        // 验证第四个分片：[300, null]
+        assertEquals(300, splitList.get(3).getSplitStart());
+        assertEquals(null, splitList.get(3).getSplitEnd());
+
+        // 验证所有分片的ID唯一性
+        Set<String> splitIds = actualSplits.stream()
+                .map(JdbcSourceSplit::getSplitId)
+                .collect(Collectors.toSet());
+        assertEquals(4, splitIds.size()); // 确保没有重复ID
     }
 }

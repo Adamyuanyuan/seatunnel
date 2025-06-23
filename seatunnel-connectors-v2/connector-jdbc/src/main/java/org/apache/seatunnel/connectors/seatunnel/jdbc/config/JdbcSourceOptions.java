@@ -120,8 +120,14 @@ public interface JdbcSourceOptions {
                                     "traditional partitioning methods would result in unbalanced workloads.");
 
     Option<Double> SPLIT_SAMPLING_PERCENTAGE =
-            Options.key("split.sampling-percentage")
+            Options.key("sampling_percentage")
                     .doubleType()
                     .defaultValue(0.1)
                     .withDescription("数据采样百分比，用于采样均衡分片算法");
+
+    Option<Integer> BUCKET_NUMBER =
+            Options.key("bucket_number")
+                    .intType()
+                    .defaultValue(10)
+                    .withDescription("Number of buckets for sampled balanced sharding strategy. ");
 }

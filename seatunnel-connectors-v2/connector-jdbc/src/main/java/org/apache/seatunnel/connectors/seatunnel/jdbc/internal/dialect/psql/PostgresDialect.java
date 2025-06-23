@@ -463,7 +463,7 @@ public class PostgresDialect implements JdbcDialect {
             JdbcSourceTable table,
             String splitColumnName,
             double samplingPercentage,
-            int partitionNum) throws SQLException {
+            int bucketNumber) throws SQLException {
 
         String quotedColumn = quoteIdentifier(splitColumnName);
         String tableRef = tableIdentifier(table.getTablePath());
@@ -487,8 +487,8 @@ public class PostgresDialect implements JdbcDialect {
                         "GROUP BY bucket_no " +
                         "ORDER BY bucket_no",
                 quotedColumn, tableRef, samplingPercentage,
-                partitionNum, quotedColumn, quotedColumn, quotedColumn,
-                quotedColumn, partitionNum
+                bucketNumber, quotedColumn, quotedColumn, quotedColumn,
+                quotedColumn, bucketNumber
         );
 
         return executeSamplingQuery(connection, sql);
