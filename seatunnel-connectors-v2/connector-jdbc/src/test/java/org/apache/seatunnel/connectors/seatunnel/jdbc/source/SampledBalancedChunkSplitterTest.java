@@ -102,6 +102,9 @@ public class SampledBalancedChunkSplitterTest {
         when(mockJdbcConnectionConfig.getUrl()).thenReturn("jdbc:mysql://localhost:3306/test");
         when(mockJdbcConnectionConfig.getCompatibleMode()).thenReturn(null);
         when(mockJdbcSourceConfig.getFetchSize()).thenReturn(DEFAULT_FETCH_SIZE);
+        when(mockJdbcSourceConfig.getSamplingPercentage()).thenReturn(0.001);
+        when(mockJdbcSourceConfig.getBucketNumber()).thenReturn(5);  // 关键配置
+        when(mockJdbcSourceConfig.isSampledBalancedSharding()).thenReturn(true);
     }
 
     /**
