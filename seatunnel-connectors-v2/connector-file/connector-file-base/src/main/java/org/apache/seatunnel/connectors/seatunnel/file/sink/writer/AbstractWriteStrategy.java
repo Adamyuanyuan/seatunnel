@@ -78,6 +78,10 @@ public abstract class AbstractWriteStrategy<T> implements WriteStrategy<T> {
     protected LinkedHashMap<String, String> beingWrittenFile = new LinkedHashMap<>();
     private LinkedHashMap<String, List<String>> partitionDirAndValuesMap;
     protected SeaTunnelRowType seaTunnelRowType;
+    protected FileCommitInfo pendingCommitInfo;
+    protected String pendingTransactionId;
+    protected Long pendingCheckpointId;
+    protected boolean rotatedAfterPrepare = false;
 
     // Checkpoint id from engine is start with 1
     protected Long checkpointId = 0L;
@@ -265,22 +269,28 @@ public abstract class AbstractWriteStrategy<T> implements WriteStrategy<T> {
             this.getOrCreateOutputStream(filePath);
         }
         this.finishAndCloseFile();
+        this.beingWrittenFile.clear();
         LinkedHashMap<String, String> commitMap = new LinkedHashMap<>(this.needMoveFiles);
-        LinkedHashMap<String, List<String>> copyMap =
-                this.partitionDirAndValuesMap.entrySet().stream()
-                        .collect(
-                                Collectors.toMap(
-                                        Map.Entry::getKey,
-                                        e -> new ArrayList<>(e.getValue()),
-                                        (e1, e2) -> e1,
-                                        LinkedHashMap::new));
-        return Optional.of(new FileCommitInfo(commitMap, copyMap, transactionDirectory));
+        LinkedHashMap<String, List<String>> copyMap = clonePartitionMap(this.partitionDirAndValuesMap);
+        FileCommitInfo commitInfo = new FileCommitInfo(commitMap, copyMap, transactionDirectory);
+        pendingCommitInfo = commitInfo;
+        pendingTransactionId = this.transactionId;
+        pendingCheckpointId = this.checkpointId;
+        rotatedAfterPrepare = true;
+        this.beginTransaction(this.checkpointId + 1);
+        this.currentBatchSize = 0;
+        return Optional.of(commitInfo);
     }
 
     /** abort prepare commit operation */
     @Override
     public void abortPrepare() {
-        abortPrepare(transactionId);
+        String targetTransaction = pendingTransactionId != null ? pendingTransactionId : transactionId;
+        abortPrepare(targetTransaction);
+        pendingCommitInfo = null;
+        pendingTransactionId = null;
+        pendingCheckpointId = null;
+        rotatedAfterPrepare = false;
     }
 
     /**
@@ -335,25 +345,41 @@ public abstract class AbstractWriteStrategy<T> implements WriteStrategy<T> {
      */
     @Override
     public List<FileSinkState> snapshotState(long checkpointId) {
+        FileCommitInfo stateCommitInfo = pendingCommitInfo;
+        String stateTransactionId =
+                pendingTransactionId != null ? pendingTransactionId : this.transactionId;
+        Long stateCheckpointId =
+                pendingCheckpointId != null ? pendingCheckpointId : this.checkpointId;
+        LinkedHashMap<String, String> commitFiles =
+                stateCommitInfo != null
+                        ? new LinkedHashMap<>(stateCommitInfo.getNeedMoveFiles())
+                        : new LinkedHashMap<>(this.needMoveFiles);
         LinkedHashMap<String, List<String>> commitMap =
-                this.partitionDirAndValuesMap.entrySet().stream()
-                        .collect(
-                                Collectors.toMap(
-                                        Map.Entry::getKey,
-                                        e -> new ArrayList<>(e.getValue()),
-                                        (e1, e2) -> e1,
-                                        LinkedHashMap::new));
+                stateCommitInfo != null
+                        ? clonePartitionMap(stateCommitInfo.getPartitionDirAndValuesMap())
+                        : clonePartitionMap(this.partitionDirAndValuesMap);
+        String stateTransactionDir =
+                stateCommitInfo != null
+                        ? stateCommitInfo.getTransactionDir()
+                        : this.getTransactionDir(stateTransactionId);
         ArrayList<FileSinkState> fileState =
                 Lists.newArrayList(
                         new FileSinkState(
-                                this.transactionId,
+                                stateTransactionId,
                                 this.uuidPrefix,
-                                this.checkpointId,
-                                new LinkedHashMap<>(this.needMoveFiles),
+                                stateCheckpointId,
+                                commitFiles,
                                 commitMap,
-                                this.getTransactionDir(transactionId)));
+                                stateTransactionDir));
         this.beingWrittenFile.clear();
-        this.beginTransaction(checkpointId + 1);
+        if (!rotatedAfterPrepare) {
+            this.beginTransaction(checkpointId + 1);
+        } else {
+            rotatedAfterPrepare = false;
+        }
+        pendingCommitInfo = null;
+        pendingTransactionId = null;
+        pendingCheckpointId = null;
         return fileState;
     }
 
@@ -444,5 +470,22 @@ public abstract class AbstractWriteStrategy<T> implements WriteStrategy<T> {
             }
         } catch (Exception ignore) {
         }
+    }
+
+    private LinkedHashMap<String, List<String>> clonePartitionMap(
+            LinkedHashMap<String, List<String>> origin) {
+        if (origin == null) {
+            return new LinkedHashMap<>();
+        }
+        return origin.entrySet().stream()
+                .collect(
+                        Collectors.toMap(
+                                Map.Entry::getKey,
+                                e ->
+                                        e.getValue() == null
+                                                ? null
+                                                : new ArrayList<>(e.getValue()),
+                                (e1, e2) -> e1,
+                                LinkedHashMap::new));
     }
 }
